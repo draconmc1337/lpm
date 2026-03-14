@@ -104,11 +104,12 @@ void cmd_deptree(int argc, char **argv) {
             for (int d = 0; d < n->depth; d++)
                 strncat(indent, "  ", sizeof(indent) - strlen(indent) - 1);
 
-            printf("  %s  %s" C_BOLD "%-*s" C_RESET "  %s%s\n",
+            /* build padded name+indent manually to avoid ANSI width issue */
+            char namebuf[64];
+            snprintf(namebuf, sizeof(namebuf), "%s%s", indent, n->name);
+            printf("  %s  " C_BOLD "%-28s" C_RESET "  %s%s\n",
                    src_col,
-                   indent,
-                   (int)(28 - n->depth * 2),
-                   n->name,
+                   namebuf,
                    n->ver[0] ? n->ver : "?",
                    inst);
         }
