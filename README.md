@@ -63,7 +63,7 @@ Example commands:
 
 ```bash
 lpm -S hello ## Sync + Build + Install
-lpm -U
+lpm -u ## Update system
 lpm -c hello ## Test suite
 ```
 
