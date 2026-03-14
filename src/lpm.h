@@ -13,7 +13,7 @@
 #include <stdarg.h>
 
 /* ── paths ──────────────────────────────────────────────────────────────── */
-#define LPM_VERSION      "alpha-1.0.0"
+#define LPM_VERSION      "1.0.0-alpha"
 #define LPM_PKGBUILD_DIR "/usr/src/lpm"
 #define LPM_BUILD_DIR    "/var/cache/lpm"
 #define LPM_DB           "/var/lib/lpm/installed"
@@ -79,6 +79,9 @@ void  cmd_fetch(int argc, char **argv);
 void  cmd_search(int argc, char **argv);
 void  cmd_info(int argc, char **argv);
 void  cmd_list(void);
+
+/* ── dep.c ──────────────────────────────────────────────────────────────── */
+void  cmd_deptree(int argc, char **argv);
 
 /* ── cache.c ─────────────────────────────────────────────────────────────── */
 void  cmd_rcc(int argc, char **argv);

@@ -389,19 +389,9 @@ void cmd_sync(int argc, char **argv) {
         }
     }
 
-    /* show packages + confirm */
-    printf("\nPackages to install (" C_BOLD "%d" C_RESET "):\n", argc);
-    for (int i = 0; i < argc; i++) {
-        char pbfile_tmp[MAX_STR];
-        snprintf(pbfile_tmp, sizeof(pbfile_tmp), "%s/pkgbuild_%s", LPM_PKGBUILD_DIR, argv[i]);
-        Pkg tmp;
-        if (pkgbuild_parse(pbfile_tmp, &tmp) == 0)
-            printf("  " C_BOLD "%-24s" C_RESET "  " C_CYAN "%s-%s" C_RESET "\n",
-                   tmp.pkgname, tmp.pkgver, tmp.pkgrel);
-        else
-            printf("  %s\n", argv[i]);
-    }
-    printf("\n");
+    /* show dep tree for each package then confirm */
+    for (int i = 0; i < argc; i++)
+        cmd_deptree(1, &argv[i]);
     if (!confirm("Proceed with installation? [Y/N] ")) { printf("Aborted.\n"); exit(0); }
 
     /* build + install each package */
@@ -413,23 +403,28 @@ void cmd_sync(int argc, char **argv) {
         if (pkgbuild_parse(pbfile, &pkg) != 0)
             die("PKGBUILD not found for '%s'", argv[i]);
 
-        /* dependency check */
-        int missing = 0;
+        /* auto-resolve missing dependencies */
         for (int d = 0; d < pkg.ndepends; d++) {
             if (!dep_satisfied(pkg.depends[d])) {
-                fprintf(stderr, C_YELLOW "missing dep: " C_RESET "%s\n", pkg.depends[d]);
-                missing++;
+                char depname[MAX_STR];
+                strncpy(depname, pkg.depends[d], MAX_STR - 1);
+                char *op = strpbrk(depname, "><="); if (op) *op = '\0';
+
+                printf(C_CYAN "  ->" C_RESET " Resolving dep: " C_BOLD "%s" C_RESET "\n", depname);
+                char *dep_argv[1] = { depname };
+                cmd_sync(1, dep_argv);
             }
         }
         for (int d = 0; d < pkg.nmakedepends; d++) {
             if (!dep_satisfied(pkg.makedepends[d])) {
-                fprintf(stderr, C_YELLOW "missing makedep: " C_RESET "%s\n", pkg.makedepends[d]);
-                missing++;
+                char depname[MAX_STR];
+                strncpy(depname, pkg.makedepends[d], MAX_STR - 1);
+                char *op = strpbrk(depname, "><="); if (op) *op = '\0';
+
+                printf(C_CYAN "  ->" C_RESET " Resolving makedep: " C_BOLD "%s" C_RESET "\n", depname);
+                char *dep_argv[1] = { depname };
+                cmd_sync(1, dep_argv);
             }
-        }
-        if (missing) {
-            if (!confirm("Missing dependencies. Continue anyway? [y/N] "))
-                exit(1);
         }
 
         if (prepare_workspace(&pkg) != 0)
