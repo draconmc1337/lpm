@@ -11,7 +11,6 @@ static int prepare_workspace(Pkg *pkg) {
     snprintf(ws, sizeof(ws), "%s/%s", LPM_BUILD_DIR, pkg->pkgname);
     mkdir(ws, 0755);
 
-    /* download each source if not already present */
     for (int i = 0; i < pkg->nsources; i++) {
         if (!pkg->source[i][0]) continue;
         char *fname = strrchr(pkg->source[i], '/');
@@ -21,16 +20,82 @@ static int prepare_workspace(Pkg *pkg) {
         char dest[MAX_STR];
         snprintf(dest, sizeof(dest), "%s/%s", ws, fname);
 
+        /* check if already downloaded AND not partial */
         struct stat st;
-        if (stat(dest, &st) == 0) continue;   /* already downloaded */
+        if (stat(dest, &st) == 0) {
+            /* partial download check: size must be > 1KB */
+            if (st.st_size < 1024) {
+                fprintf(stderr,
+                    C_YELLOW "warning: " C_RESET
+                    "%s looks partial (%ld bytes), re-downloading...\n",
+                    fname, (long)st.st_size);
+                remove(dest);
+            } else {
+                /* verify tarball integrity if it's a tar archive */
+                char ext[32] = "";
+                char *dot = strrchr(fname, '.');
+                if (dot) strncpy(ext, dot, sizeof(ext) - 1);
 
-        printf("  -> Fetching %s\n", fname);
+                int is_tar = (strstr(fname, ".tar") != NULL);
+                if (is_tar) {
+                    char check_cmd[MAX_STR];
+                    snprintf(check_cmd, sizeof(check_cmd),
+                        "tar -tf '%s' &>/dev/null", dest);
+                    if (run(check_cmd) != 0) {
+                        fprintf(stderr,
+                            C_YELLOW "warning: " C_RESET
+                            "%s is corrupt, re-downloading...\n", fname);
+                        remove(dest);
+                    } else {
+                        continue; /* file ok, skip download */
+                    }
+                } else {
+                    continue; /* not a tar, trust size check */
+                }
+            }
+        }
+
+        printf(C_CYAN "  ->" C_RESET " Fetching %s\n", fname);
+        lpm_log("Downloading %s", pkg->source[i]);
+
+        /* use .part file — atomic download */
+        char part[MAX_STR];
+        snprintf(part, sizeof(part), "%s.part", dest);
+        remove(part);  /* remove stale .part from previous interrupted run */
+
         char cmd[1024];
-        snprintf(cmd, sizeof(cmd), "wget -q --show-progress -O '%s' '%s' "
-                                   "|| curl -L --progress-bar -o '%s' '%s'",
-                 dest, pkg->source[i], dest, pkg->source[i]);
-        if (run(cmd) != 0) {
-            fprintf(stderr, C_RED "error: " C_RESET "Failed to fetch %s\n", pkg->source[i]);
+        snprintf(cmd, sizeof(cmd),
+            "wget -q --show-progress -O '%s' '%s' "
+            "|| curl -L --progress-bar -o '%s' '%s'",
+            part, pkg->source[i], part, pkg->source[i]);
+
+        int dl_rc = run(cmd);  /* run() exits on SIGINT, so .part gets cleaned below */
+        if (dl_rc != 0) {
+            remove(part);  /* cleanup partial .part file */
+            fprintf(stderr,
+                C_RED "error: " C_RESET
+                "Failed to fetch %s\n"
+                "  Check network or source URL in PKGBUILD.\n",
+                pkg->source[i]);
+            return -1;
+        }
+
+        /* verify .part file is not empty/partial */
+        struct stat part_st;
+        if (stat(part, &part_st) != 0 || part_st.st_size < 1024) {
+            remove(part);
+            fprintf(stderr,
+                C_RED "error: " C_RESET
+                "Downloaded file too small — likely a 404 or network error.\n"
+                "  URL: %s\n", pkg->source[i]);
+            return -1;
+        }
+
+        /* atomic rename: .part -> final filename */
+        if (rename(part, dest) != 0) {
+            remove(part);
+            fprintf(stderr, C_RED "error: " C_RESET
+                    "Failed to finalize download of %s\n", fname);
             return -1;
         }
     }
@@ -39,6 +104,47 @@ static int prepare_workspace(Pkg *pkg) {
 
 
 
+
+/* ── verify_sources ─────────────────────────────────────────────────────── */
+static int verify_sources(Pkg *pkg, const char *ws) {
+    int ok = 1;
+    for (int i = 0; i < pkg->nsources; i++) {
+        if (!pkg->sha256sums[i][0]) continue;  /* no checksum defined */
+        if (strcmp(pkg->sha256sums[i], "SKIP") == 0) continue;
+
+        char *fname = strrchr(pkg->source[i], '/');
+        if (!fname) continue;
+        fname++;
+
+        char filepath[MAX_STR];
+        snprintf(filepath, sizeof(filepath), "%s/%s", ws, fname);
+
+        /* compute sha256 */
+        char cmd[MAX_STR];
+        snprintf(cmd, sizeof(cmd),
+            "sha256sum '%s' 2>/dev/null | cut -d' ' -f1", filepath);
+        FILE *p = popen(cmd, "r");
+        if (!p) { ok = 0; continue; }
+
+        char actual[MAX_STR] = "";
+        if (fgets(actual, sizeof(actual), p))
+            actual[strcspn(actual, "\n")] = '\0';
+        pclose(p);
+
+        if (strcmp(actual, pkg->sha256sums[i]) != 0) {
+            fprintf(stderr,
+                C_RED "error: " C_RESET
+                "checksum mismatch for " C_BOLD "%s" C_RESET "\n"
+                "  expected: " C_CYAN "%s" C_RESET "\n"
+                "  got:      " C_RED "%s" C_RESET "\n",
+                fname, pkg->sha256sums[i], actual);
+            ok = 0;
+        } else {
+            printf(C_GREEN "  ok" C_RESET " %s\n", fname);
+        }
+    }
+    return ok;
+}
 
 /* ── cmd_check ───────────────────────────────────────────────────────────── */
 void cmd_check(int argc, char **argv) {
@@ -389,42 +495,79 @@ void cmd_sync(int argc, char **argv) {
         }
     }
 
-    /* show dep tree for each package then confirm */
+    /* build full dep queue with toposort */
+    char queue[256][MAX_STR];
+    int  nqueue = 0;
+    for (int i = 0; i < argc; i++) {
+        char subq[256][MAX_STR];
+        int  nsub = dep_resolve_queue(argv[i], subq, 256);
+        for (int j = 0; j < nsub && nqueue < 256; j++) {
+            /* dedup */
+            int dup = 0;
+            for (int k = 0; k < nqueue; k++)
+                if (strcmp(queue[k], subq[j]) == 0) { dup = 1; break; }
+            if (!dup) strncpy(queue[nqueue++], subq[j], MAX_STR - 1);
+        }
+        /* ensure target itself is last */
+        int dup = 0;
+        for (int k = 0; k < nqueue; k++)
+            if (strcmp(queue[k], argv[i]) == 0) { dup = 1; break; }
+        if (!dup) strncpy(queue[nqueue++], argv[i], MAX_STR - 1);
+    }
+
+    /* show dep tree + confirm */
     for (int i = 0; i < argc; i++)
         cmd_deptree(1, &argv[i]);
+
+    if (nqueue > 0) {
+        printf(C_CYAN "::" C_RESET " Will build " C_BOLD "%d" C_RESET
+               " package(s) in order:\n", nqueue);
+        for (int i = 0; i < nqueue; i++)
+            printf("    " C_CYAN "%d." C_RESET " %s\n", i + 1, queue[i]);
+        printf("\n");
+    }
+
     if (!confirm("Proceed with installation? [Y/N] ")) { printf("Aborted.\n"); exit(0); }
 
-    /* build + install each package */
-    for (int i = 0; i < argc; i++) {
+    /* build + install each package in toposorted order */
+    for (int qi = 0; qi < nqueue; qi++) {
+        char *pkgname_q = queue[qi];
+        if (db_is_installed(pkgname_q)) continue;
+
+        /* fetch PKGBUILD if not local */
+        char pbfile_check[MAX_STR];
+        snprintf(pbfile_check, sizeof(pbfile_check), "%s/pkgbuild_%s",
+                 LPM_PKGBUILD_DIR, pkgname_q);
+        struct stat st_check;
+        if (stat(pbfile_check, &st_check) != 0) {
+            printf(C_CYAN "  ->" C_RESET " Fetching pkgbuild_%s...\n", pkgname_q);
+            char fetch_argv_buf[MAX_STR];
+            strncpy(fetch_argv_buf, pkgname_q, MAX_STR - 1);
+            char *fetch_argv[1] = { fetch_argv_buf };
+            cmd_fetch(1, fetch_argv);
+        }
+    }
+
+    /* now build+install loop */
+    for (int qi = 0; qi < nqueue; qi++) {
+        int i = qi; /* reuse variable name below */
+        char argv_buf[MAX_STR];
+        strncpy(argv_buf, queue[qi], MAX_STR - 1);
+        char *cur_argv = argv_buf;
+        (void)i;
+
         char pbfile[MAX_STR];
-        snprintf(pbfile, sizeof(pbfile), "%s/pkgbuild_%s", LPM_PKGBUILD_DIR, argv[i]);
+        snprintf(pbfile, sizeof(pbfile), "%s/pkgbuild_%s", LPM_PKGBUILD_DIR, cur_argv);
 
         Pkg pkg;
-        if (pkgbuild_parse(pbfile, &pkg) != 0)
-            die("PKGBUILD not found for '%s'", argv[i]);
-
-        /* auto-resolve missing dependencies */
-        for (int d = 0; d < pkg.ndepends; d++) {
-            if (!dep_satisfied(pkg.depends[d])) {
-                char depname[MAX_STR];
-                strncpy(depname, pkg.depends[d], MAX_STR - 1);
-                char *op = strpbrk(depname, "><="); if (op) *op = '\0';
-
-                printf(C_CYAN "  ->" C_RESET " Resolving dep: " C_BOLD "%s" C_RESET "\n", depname);
-                char *dep_argv[1] = { depname };
-                cmd_sync(1, dep_argv);
-            }
+        if (pkgbuild_parse(pbfile, &pkg) != 0) {
+            warn("No PKGBUILD for '%s', skipping", cur_argv);
+            continue;
         }
-        for (int d = 0; d < pkg.nmakedepends; d++) {
-            if (!dep_satisfied(pkg.makedepends[d])) {
-                char depname[MAX_STR];
-                strncpy(depname, pkg.makedepends[d], MAX_STR - 1);
-                char *op = strpbrk(depname, "><="); if (op) *op = '\0';
 
-                printf(C_CYAN "  ->" C_RESET " Resolving makedep: " C_BOLD "%s" C_RESET "\n", depname);
-                char *dep_argv[1] = { depname };
-                cmd_sync(1, dep_argv);
-            }
+        if (db_is_installed(cur_argv)) {
+            printf(C_CYAN "  ->" C_RESET " %s already installed, skipping\n", cur_argv);
+            continue;
         }
 
         if (prepare_workspace(&pkg) != 0)
@@ -432,6 +575,15 @@ void cmd_sync(int argc, char **argv) {
 
         char ws[MAX_STR];
         snprintf(ws, sizeof(ws), "%s/%s", LPM_BUILD_DIR, pkg.pkgname);
+
+        /* verify checksums */
+        if (pkg.sha256sums[0][0]) {
+            printf(C_CYAN "::" C_RESET " Verifying checksums...\n");
+            if (!verify_sources(&pkg, ws)) {
+                lpm_log("Checksum FAILED: %s", cur_argv);
+                die("Source integrity check failed for %s", cur_argv);
+            }
+        }
 
         /* build */
         printf(C_BOLD "==> Building %s %s-%s" C_RESET "\n",

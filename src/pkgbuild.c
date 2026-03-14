@@ -71,6 +71,14 @@ int pkgbuild_parse(const char *pbfile, Pkg *pkg) {
         if (pkg->source[pkg->nsources][0]) pkg->nsources++;
     }
 
+    /* sha256sums — scalar for single source, sha256sums2/3 for extra */
+    bash_scalar(pbfile, "sha256sums", pkg->sha256sums[0], MAX_STR);
+    for (int i = 2; i <= MAX_SRCS; i++) {
+        char varname[32];
+        snprintf(varname, sizeof(varname), "sha256sums%d", i);
+        bash_scalar(pbfile, varname, pkg->sha256sums[i-1], MAX_STR);
+    }
+
     pkg->has_check     = bash_func_exists(pbfile, "check");
     pkg->has_uninstall = bash_func_exists(pbfile, "uninstall");
 

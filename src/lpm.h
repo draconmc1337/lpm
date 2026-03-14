@@ -13,7 +13,7 @@
 #include <stdarg.h>
 
 /* ── paths ──────────────────────────────────────────────────────────────── */
-#define LPM_VERSION      "1.0.0-alpha"
+#define LPM_VERSION      "v1.1.0-alpha"
 #define LPM_PKGBUILD_DIR "/usr/src/lpm"
 #define LPM_BUILD_DIR    "/var/cache/lpm"
 #define LPM_DB           "/var/lib/lpm/installed"
@@ -44,6 +44,7 @@ typedef struct {
     int  nmakedepends;
     char source[MAX_SRCS][MAX_STR];
     int  nsources;
+    char sha256sums[MAX_SRCS][MAX_STR];
     char pbfile[MAX_STR];   /* full path */
     int  has_check;
     int  has_uninstall;
@@ -81,6 +82,7 @@ void  cmd_info(int argc, char **argv);
 void  cmd_list(void);
 
 /* ── dep.c ──────────────────────────────────────────────────────────────── */
+int   dep_resolve_queue(const char *pkgname, char out[][512], int maxout);
 void  cmd_deptree(int argc, char **argv);
 
 /* ── cache.c ─────────────────────────────────────────────────────────────── */
