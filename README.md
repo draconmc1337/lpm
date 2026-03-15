@@ -70,10 +70,10 @@ cd lpm
 make
 ```
 
-Install (optional):
+Install:
 
 ```bash
-sudo make install
+doas make install ## LOtus Linux uses doas as 
 ```
 
 ---
