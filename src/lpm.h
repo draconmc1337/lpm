@@ -13,7 +13,7 @@
 #include <stdarg.h>
 
 /* ── paths ──────────────────────────────────────────────────────────────── */
-#define LPM_VERSION      "1.1.0-alpha"
+#define LPM_VERSION      "v1.1.1-alpha"
 #define LPM_PKGBUILD_DIR "/usr/src/lpm"
 #define LPM_BUILD_DIR    "/var/cache/lpm"
 #define LPM_DB           "/var/lib/lpm/installed"
@@ -84,6 +84,7 @@ void  cmd_list(void);
 
 /* ── dep.c ──────────────────────────────────────────────────────────────── */
 int   dep_resolve_queue(const char *pkgname, char out[][512], int maxout);
+void  dep_set_folder(const char *pkgname, const char *folder);
 void  cmd_deptree(int argc, char **argv);
 
 /* ── cache.c ─────────────────────────────────────────────────────────────── */

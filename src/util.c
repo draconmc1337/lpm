@@ -1,4 +1,5 @@
 #include "lpm.h"
+#include <signal.h>
 #include <time.h>
 
 void die(const char *fmt, ...) {
@@ -39,9 +40,12 @@ void lpm_log(const char *fmt, ...) {
 int confirm(const char *prompt) {
     printf("%s", prompt);
     fflush(stdout);
-    char buf[8];
+    char buf[16];
     if (!fgets(buf, sizeof(buf), stdin)) return 0;
-    return (buf[0] == 'y' || buf[0] == 'Y');
+    buf[strcspn(buf, "\n")] = '\0';
+    /* accept: y Y yes YES Yes */
+    return (strcasecmp(buf, "y")   == 0 ||
+            strcasecmp(buf, "yes") == 0);
 }
 
 void init_dirs(void) {

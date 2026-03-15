@@ -2,9 +2,14 @@
 
 #define MAX_QUEUE 256
 
+/* repo folders to search — same order as cmd_sync */
+static const char *REPO_FOLDERS[] = { "base", "extra", "lotus", NULL };
+#define REPO_BASE "https://raw.githubusercontent.com/draconmc1337/lotus-repository/main"
+
 typedef struct {
     char name[MAX_STR];
     char ver[MAX_STR];
+    char folder[16];   /* base / extra / lotus / ? */
     int  installed;
     int  has_src;
     int  depth;
@@ -36,6 +41,16 @@ static void dep_name_only(const char *spec, char *out) {
     if (op) *op = '\0';
 }
 
+/* detect which repo folder a pkgbuild is in */
+static void detect_folder(const char *pkgname, char *folder_out) {
+    strncpy(folder_out, "?", 15);
+    /* check local /usr/src/lpm — pkgbuild already fetched */
+    /* we derive folder from a simple heuristic: try each subfolder path */
+    /* Since we only have the local pkgbuild, just mark as unknown */
+    /* cmd_sync sets folder during fetch — dep tree uses local pkgbuilds */
+    (void)pkgname;
+}
+
 static void collect(const char *pkgname, int depth) {
     if (already_seen(pkgname)) return;
     if (nresolved >= MAX_QUEUE) return;
@@ -45,6 +60,7 @@ static void collect(const char *pkgname, int depth) {
     strncpy(node.name, pkgname, MAX_STR - 1);
     node.depth     = depth;
     node.installed = db_is_installed(pkgname);
+    strncpy(node.folder, "?", sizeof(node.folder) - 1);
 
     char pbfile[MAX_STR];
     snprintf(pbfile, sizeof(pbfile), "%s/pkgbuild_%s",
@@ -117,68 +133,93 @@ int dep_resolve_queue(const char *pkgname,
     return n;
 }
 
+/* ── print emerge-style package list ────────────────────────────────────── */
+static void print_pkg_list(void) {
+    int to_build = 0;
+    for (int i = 0; i < nresolved; i++)
+        if (resolved[i].has_src && !resolved[i].installed) to_build++;
+
+    printf("\n");
+    for (int i = 0; i < nresolved; i++) {
+        DepNode *n = &resolved[i];
+
+        /* [src Y/N] */
+        const char *sc = n->has_src ? C_GREEN : C_YELLOW;
+        const char  sy = n->has_src ? 'Y' : 'N';
+
+        /* status: N=new, R=reinstall */
+        char status = n->installed ? 'R' : 'N';
+        const char *stc = n->installed ? C_CYAN : C_GREEN;
+
+        /* installed marker */
+        const char *inst = n->installed
+            ? " " C_CYAN "[installed]" C_RESET : "";
+
+        printf("[%ssrc %c" C_RESET " %s%c" C_RESET "] "
+               C_BOLD "%s" C_RESET "/"
+               C_BOLD "%s" C_RESET "-"
+               "%s"
+               "%s\n",
+               sc, sy,
+               stc, status,
+               n->folder[0] != '?' ? n->folder : "repo",
+               n->name,
+               n->ver[0] ? n->ver : "?",
+               inst);
+    }
+
+    printf("\n");
+    printf("Total: " C_BOLD "%d" C_RESET
+           "  installed: " C_CYAN "%d" C_RESET
+           "  to build: " C_YELLOW "%d" C_RESET,
+           nresolved,
+           nresolved - to_build,
+           to_build);
+
+    int missing = 0;
+    for (int i = 0; i < nresolved; i++)
+        if (!resolved[i].has_src) missing++;
+    if (missing)
+        printf("  no PKGBUILD: " C_RED "%d" C_RESET, missing);
+    printf("\n");
+
+    /* build order */
+    if (to_build > 0) {
+        printf("\n  Build order:\n");
+        int order = 1;
+        for (int i = 0; i < nresolved; i++) {
+            DepNode *n = &resolved[i];
+            if (n->has_src && !n->installed)
+                printf("    " C_CYAN "%d." C_RESET " %s/%s-%s\n",
+                       order++, n->folder[0] != '?' ? n->folder : "repo",
+                       n->name, n->ver[0] ? n->ver : "?");
+        }
+    }
+    printf("\n");
+}
+
+/* ── cmd_deptree ─────────────────────────────────────────────────────────── */
 void cmd_deptree(int argc, char **argv) {
     if (argc == 0) die("No package specified.\nUsage: lpm -D <package>");
 
     for (int a = 0; a < argc; a++) {
         nresolved = 0;
         collect(argv[a], 0);
-
         if (nresolved == 0) {
             fprintf(stderr, C_RED "error: " C_RESET
                     "No PKGBUILD found for '%s'\n", argv[a]);
             continue;
         }
-
         toposort();
-
-        printf("\n");
-        printf(C_BOLD "  %-4s  %-28s  %s\n" C_RESET,
-               "src", "package", "version");
-        printf("  ────  ────────────────────────────  ─────────────\n");
-
-        for (int i = 0; i < nresolved; i++) {
-            DepNode *n = &resolved[i];
-            const char *src_col = n->has_src
-                ? C_GREEN "Y  " C_RESET : C_YELLOW "N  " C_RESET;
-            const char *inst = n->installed
-                ? " " C_CYAN "[installed]" C_RESET : "";
-            char indent[64] = "";
-            for (int d = 0; d < n->depth; d++)
-                strncat(indent, "  ", sizeof(indent) - strlen(indent) - 1);
-            char namebuf[64];
-            snprintf(namebuf, sizeof(namebuf), "%s%s", indent, n->name);
-            printf("  %s  " C_BOLD "%-28s" C_RESET "  %s%s\n",
-                   src_col, namebuf,
-                   n->ver[0] ? n->ver : "?", inst);
-        }
-
-        printf("  ────  ────────────────────────────  ─────────────\n");
-
-        int inst_count = 0, to_build = 0, missing = 0;
-        for (int i = 0; i < nresolved; i++) {
-            if (!resolved[i].has_src)  missing++;
-            if (resolved[i].installed) inst_count++;
-            if (resolved[i].has_src && !resolved[i].installed) to_build++;
-        }
-        printf("  Total: " C_BOLD "%d" C_RESET
-               "  installed: " C_CYAN "%d" C_RESET
-               "  to build: " C_YELLOW "%d" C_RESET,
-               nresolved, inst_count, to_build);
-        if (missing) printf("  no PKGBUILD: " C_RED "%d" C_RESET, missing);
-        printf("\n");
-
-        if (to_build > 0) {
-            printf("\n  Build order:\n");
-            int order = 1;
-            /* use resolved[] display order not build_order[] to avoid dups */
-            for (int i = 0; i < nresolved; i++) {
-                DepNode *n = &resolved[i];
-                if (n->has_src && !n->installed)
-                    printf("    " C_CYAN "%d." C_RESET " %s\n",
-                           order++, n->name);
-            }
-        }
-        printf("\n");
+        print_pkg_list();
     }
+}
+
+/* called from cmd_sync — set folder info on resolved nodes */
+void dep_set_folder(const char *pkgname, const char *folder) {
+    for (int i = 0; i < nresolved; i++)
+        if (strcmp(resolved[i].name, pkgname) == 0) {
+            strncpy(resolved[i].folder, folder, sizeof(resolved[i].folder) - 1);
+            return;
+        }
 }

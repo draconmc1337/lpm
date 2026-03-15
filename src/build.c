@@ -336,7 +336,7 @@ void cmd_remove(int argc, char **argv) {
     for (int i = 0; i < npkgs; i++)
         printf("  %s\n", pkgs[i]);
     printf("\n");
-    if (!confirm("Proceed to remove? [y/N] ")) { printf("Aborted.\n"); exit(0); }
+    if (!confirm("\nWould you like to remove these packages? [" C_GREEN "Yes" C_RESET "/" C_RED "No" C_RESET "] ")) { printf("Aborted.\n"); exit(0); }
 
     for (int i = 0; i < npkgs; i++) {
         printf(C_CYAN "::" C_RESET " Removing " C_BOLD "%s" C_RESET "...", pkgs[i]);
@@ -491,7 +491,7 @@ void cmd_sync(int argc, char **argv) {
             struct stat st;
             if (stat(dest, &st) == 0 && st.st_size > 32) {
                 printf(C_GREEN "  ->" C_RESET
-                       " Found in " C_CYAN "%s/" C_RESET " -> %s\n",
+                       " Found in " C_CYAN "[%s]" C_RESET " -> %s\n",
                        folders[f], dest);
                 lpm_log("Fetched pkgbuild_%s from %s/%s",
                         argv[i], REPO_BASE, folders[f]);
@@ -539,7 +539,7 @@ void cmd_sync(int argc, char **argv) {
         printf("\n");
     }
 
-    if (!confirm("Proceed with installation? [Y/N] ")) { printf("Aborted.\n"); exit(0); }
+    if (!confirm("\nWould you like to build these packages? [" C_GREEN "Yes" C_RESET "/" C_RED "No" C_RESET "] ")) { printf("Aborted.\n"); exit(0); }
 
     /* build + install each package in toposorted order */
     for (int qi = 0; qi < nqueue; qi++) {
