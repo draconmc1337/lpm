@@ -73,7 +73,7 @@ make
 Install:
 
 ```bash
-doas make install ## LOtus Linux uses doas as 
+doas make install # Lotus Linux uses doas instead of sudo.
 ```
 
 ---
