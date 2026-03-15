@@ -13,7 +13,7 @@
 #include <stdarg.h>
 
 /* ── paths ──────────────────────────────────────────────────────────────── */
-#define LPM_VERSION      "v1.1.0-alpha"
+#define LPM_VERSION      "1.1.0-alpha"
 #define LPM_PKGBUILD_DIR "/usr/src/lpm"
 #define LPM_BUILD_DIR    "/var/cache/lpm"
 #define LPM_DB           "/var/lib/lpm/installed"
@@ -45,6 +45,7 @@ typedef struct {
     char source[MAX_SRCS][MAX_STR];
     int  nsources;
     char sha256sums[MAX_SRCS][MAX_STR];
+    char md5sums[MAX_SRCS][MAX_STR];
     char pbfile[MAX_STR];   /* full path */
     int  has_check;
     int  has_uninstall;

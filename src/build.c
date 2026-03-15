@@ -109,8 +109,21 @@ static int prepare_workspace(Pkg *pkg) {
 static int verify_sources(Pkg *pkg, const char *ws) {
     int ok = 1;
     for (int i = 0; i < pkg->nsources; i++) {
-        if (!pkg->sha256sums[i][0]) continue;  /* no checksum defined */
-        if (strcmp(pkg->sha256sums[i], "SKIP") == 0) continue;
+        const char *expected = NULL;
+        const char *algo     = NULL;
+        const char *tool     = NULL;
+
+        if (pkg->sha256sums[i][0] && strcmp(pkg->sha256sums[i], "SKIP") != 0) {
+            expected = pkg->sha256sums[i];
+            algo     = "sha256";
+            tool     = "sha256sum";
+        } else if (pkg->md5sums[i][0] && strcmp(pkg->md5sums[i], "SKIP") != 0) {
+            expected = pkg->md5sums[i];
+            algo     = "md5";
+            tool     = "md5sum";
+        } else {
+            continue;  /* no checksum or SKIP */
+        }
 
         char *fname = strrchr(pkg->source[i], '/');
         if (!fname) continue;
@@ -119,10 +132,9 @@ static int verify_sources(Pkg *pkg, const char *ws) {
         char filepath[MAX_STR];
         snprintf(filepath, sizeof(filepath), "%s/%s", ws, fname);
 
-        /* compute sha256 */
         char cmd[MAX_STR];
         snprintf(cmd, sizeof(cmd),
-            "sha256sum '%s' 2>/dev/null | cut -d' ' -f1", filepath);
+            "%s '%s' 2>/dev/null | cut -d' ' -f1", tool, filepath);
         FILE *p = popen(cmd, "r");
         if (!p) { ok = 0; continue; }
 
@@ -131,16 +143,16 @@ static int verify_sources(Pkg *pkg, const char *ws) {
             actual[strcspn(actual, "\n")] = '\0';
         pclose(p);
 
-        if (strcmp(actual, pkg->sha256sums[i]) != 0) {
+        if (strcmp(actual, expected) != 0) {
             fprintf(stderr,
                 C_RED "error: " C_RESET
-                "checksum mismatch for " C_BOLD "%s" C_RESET "\n"
+                "%s mismatch for " C_BOLD "%s" C_RESET "\n"
                 "  expected: " C_CYAN "%s" C_RESET "\n"
                 "  got:      " C_RED "%s" C_RESET "\n",
-                fname, pkg->sha256sums[i], actual);
+                algo, fname, expected, actual);
             ok = 0;
         } else {
-            printf(C_GREEN "  ok" C_RESET " %s\n", fname);
+            printf(C_GREEN "  ok" C_RESET " [%s] %s\n", algo, fname);
         }
     }
     return ok;
