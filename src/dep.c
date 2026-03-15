@@ -202,17 +202,20 @@ static void print_pkg_list(void) {
 void cmd_deptree(int argc, char **argv) {
     if (argc == 0) die("No package specified.\nUsage: lpm -D <package>");
 
+    /* collect all packages into single resolved list */
+    nresolved = 0;
     for (int a = 0; a < argc; a++) {
-        nresolved = 0;
         collect(argv[a], 0);
-        if (nresolved == 0) {
-            fprintf(stderr, C_RED "error: " C_RESET
-                    "No PKGBUILD found for '%s'\n", argv[a]);
-            continue;
-        }
-        toposort();
-        print_pkg_list();
     }
+
+    if (nresolved == 0) {
+        fprintf(stderr, C_RED "error: " C_RESET
+                "No PKGBUILDs found\n");
+        return;
+    }
+
+    toposort();
+    print_pkg_list();
 }
 
 /* called from cmd_sync — set folder info on resolved nodes */

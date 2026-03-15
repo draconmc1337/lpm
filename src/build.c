@@ -24,7 +24,7 @@ static int prepare_workspace(Pkg *pkg) {
         struct stat st;
         if (stat(dest, &st) == 0) {
             /* partial download check: size must be > 1KB */
-            if (st.st_size < 1024) {
+            if (st.st_size < (200 * 1024)) {
                 fprintf(stderr,
                     C_YELLOW "warning: " C_RESET
                     "%s looks partial (%ld bytes), re-downloading...\n",
@@ -82,7 +82,7 @@ static int prepare_workspace(Pkg *pkg) {
 
         /* verify .part file is not empty/partial */
         struct stat part_st;
-        if (stat(part, &part_st) != 0 || part_st.st_size < 1024) {
+        if (stat(part, &part_st) != 0 || part_st.st_size < (200 * 1024)) {
             remove(part);
             fprintf(stderr,
                 C_RED "error: " C_RESET
@@ -527,9 +527,8 @@ void cmd_sync(int argc, char **argv) {
         if (!dup) strncpy(queue[nqueue++], argv[i], MAX_STR - 1);
     }
 
-    /* show dep tree + confirm */
-    for (int i = 0; i < argc; i++)
-        cmd_deptree(1, &argv[i]);
+    /* show combined dep tree for all packages */
+    cmd_deptree(argc, argv);
 
     if (nqueue > 0) {
         printf(C_CYAN "::" C_RESET " Will build " C_BOLD "%d" C_RESET
