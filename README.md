@@ -37,10 +37,6 @@ Reliability features:
 * Critical package blacklist (prevents removal of core packages)
 * Confirmation prompts for destructive operations
 
-Developer tools:
-
-* `newpkg` script for generating PKGBUILD templates
-* `lpm-bootstrap.sh` for bootstrapping systems after manual builds
 
 Repository integration:
 
@@ -66,66 +62,57 @@ Use at your own risk.
 
 # Installation
 
-Clone the repository:
+Clone and build **lpm**:
 
+```bash
 git clone https://github.com/draconmc1337/lpm
 cd lpm
-
-Build:
-
 make
+```
 
 Install (optional):
 
+```bash
 sudo make install
+```
 
 ---
 
 # Basic Usage
 
-Install a package:
+Common commands:
 
-lpm -S <package>
-
-Update installed packages:
-
-lpm -u
-
-Search for a package:
-
-lpm -s <package>
-
-Show package information:
-
-lpm -qi <package>
-
-Remove a package:
-
-lpm -r <package>
-
-Run package test suite:
-
-lpm -c <package>
+```bash
+lpm -S <package>    # install package
+lpm -u              # update installed packages
+lpm -s <package>    # search repository
+lpm -qi <package>   # show package info
+lpm -r <package>    # remove package
+lpm -c <package>    # run package test suite
+```
 
 ---
 
 # Repository Structure
 
-Example repository layout:
+Example Lotus repository layout:
 
+```text
 repo/
-├─ base/
-│   ├─ pkgbuild_gcc
-│   └─ pkgbuild_glibc
-├─ extra/
-└─ lotus/
-└─ pkgbuild_hello
+├── base/
+│   ├── pkgbuild_gcc
+│   └── pkgbuild_glibc
+├── extra/
+└── lotus/
+    └── pkgbuild_hello
+```
 
-lpm automatically searches for packages in this order:
+Package lookup order:
 
+```
 base → extra → lotus
+```
 
----
 
 # Philosophy
 
