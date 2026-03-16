@@ -13,7 +13,7 @@
 #include <stdarg.h>
 
 /* ── paths ──────────────────────────────────────────────────────────────── */
-#define LPM_VERSION      "v1.1.1-alpha"
+#define LPM_VERSION      "v1.1.2-alpha"
 #define LPM_PKGBUILD_DIR "/usr/src/lpm"
 #define LPM_BUILD_DIR    "/var/cache/lpm"
 #define LPM_DB           "/var/lib/lpm/installed"
@@ -74,6 +74,7 @@ int   dep_satisfied(const char *spec);        /* "name" or "name>=ver" */
 void  cmd_check(int argc, char **argv);
 void  cmd_remove(int argc, char **argv);
 void  cmd_update(int argc, char **argv);
+void  cmd_local(int argc, char **argv);
 void  cmd_sync(int argc, char **argv);
 void  cmd_fetch(int argc, char **argv);
 

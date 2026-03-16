@@ -739,3 +739,168 @@ void cmd_fetch(int argc, char **argv) {
 #undef REPO_BASE2
 #undef REPO_TRIES2
 }
+
+/* ── cmd_local ───────────────────────────────────────────────────────────────
+ * lpm -bi <pkg>  — build + install using local PKGBUILD, no network fetch
+ * ─────────────────────────────────────────────────────────────────────────── */
+void cmd_local(int argc, char **argv) {
+    check_root(); init_dirs();
+    if (argc == 0) die("No package specified.\nUsage: lpm -bi <package>");
+
+    /* verify all PKGBUILDs exist locally first */
+    for (int i = 0; i < argc; i++) {
+        char pbfile[MAX_STR];
+        snprintf(pbfile, sizeof(pbfile), "%s/pkgbuild_%s", LPM_PKGBUILD_DIR, argv[i]);
+        struct stat st;
+        if (stat(pbfile, &st) != 0)
+            die("PKGBUILD not found locally for '%s'\n"
+                "    Expected: %s\n"
+                "    Copy PKGBUILD there or use 'lpm -S' with network.", argv[i], pbfile);
+    }
+
+    /* build queue with toposort */
+    char queue[256][MAX_STR];
+    int  nqueue = 0;
+    for (int i = 0; i < argc; i++) {
+        char subq[256][MAX_STR];
+        int  nsub = dep_resolve_queue(argv[i], subq, 256);
+        for (int j = 0; j < nsub && nqueue < 256; j++) {
+            int dup = 0;
+            for (int k = 0; k < nqueue; k++)
+                if (strcmp(queue[k], subq[j]) == 0) { dup = 1; break; }
+            if (!dup) strncpy(queue[nqueue++], subq[j], MAX_STR - 1);
+        }
+        int dup = 0;
+        for (int k = 0; k < nqueue; k++)
+            if (strcmp(queue[k], argv[i]) == 0) { dup = 1; break; }
+        if (!dup) strncpy(queue[nqueue++], argv[i], MAX_STR - 1);
+    }
+
+    /* show dep tree + confirm */
+    cmd_deptree(argc, argv);
+
+    if (nqueue > 0) {
+        printf(C_CYAN "::" C_RESET " Will build " C_BOLD "%d" C_RESET
+               " package(s) in order:\n", nqueue);
+        for (int i = 0; i < nqueue; i++)
+            printf("    " C_CYAN "%d." C_RESET " %s\n", i + 1, queue[i]);
+        printf("\n");
+    }
+
+    if (!confirm("\nWould you like to build these packages? ["
+                 C_GREEN "Yes" C_RESET "/" C_RED "No" C_RESET "] "))
+        { printf("Aborted.\n"); exit(0); }
+
+    /* build + install loop */
+    for (int qi = 0; qi < nqueue; qi++) {
+        char pbfile[MAX_STR];
+        snprintf(pbfile, sizeof(pbfile), "%s/pkgbuild_%s",
+                 LPM_PKGBUILD_DIR, queue[qi]);
+
+        Pkg pkg;
+        if (pkgbuild_parse(pbfile, &pkg) != 0) {
+            warn("No local PKGBUILD for '%s', skipping", queue[qi]);
+            continue;
+        }
+
+        if (db_is_installed(queue[qi])) {
+            printf(C_CYAN "  ->" C_RESET " %s already installed, skipping\n", queue[qi]);
+            continue;
+        }
+
+        char ws[MAX_STR];
+        snprintf(ws, sizeof(ws), "%s/%s", LPM_BUILD_DIR, pkg.pkgname);
+        mkdir(ws, 0755);
+
+        if (prepare_workspace(&pkg) != 0)
+            die("Failed to prepare workspace for %s", queue[qi]);
+
+        /* verify checksums */
+        if (pkg.sha256sums[0][0] || pkg.md5sums[0][0]) {
+            printf(C_CYAN "::" C_RESET " Verifying checksums...\n");
+            if (!verify_sources(&pkg, ws)) {
+                lpm_log("Checksum FAILED: %s", queue[qi]);
+                die("Source integrity check failed for %s", queue[qi]);
+            }
+        }
+
+        printf(C_BOLD "==> Building %s %s-%s" C_RESET "\n",
+               pkg.pkgname, pkg.pkgver, pkg.pkgrel);
+        lpm_log("Building %s %s-%s", pkg.pkgname, pkg.pkgver, pkg.pkgrel);
+
+        char build_cmd[2048];
+        snprintf(build_cmd, sizeof(build_cmd),
+            "bash -c 'source \"%s\" && cd \"%s\" && build' >> \"%s\" 2>&1",
+            pbfile, ws, LPM_LOG);
+
+        if (run(build_cmd) != 0) {
+            fprintf(stderr, C_RED "error: " C_RESET
+                    "Build failed for %s. See %s\n", queue[qi], LPM_LOG);
+            lpm_log("Build FAILED: %s", queue[qi]);
+            exit(1);
+        }
+
+        /* check() */
+        if (pkg.has_check) {
+            char check_log[MAX_STR];
+            snprintf(check_log, sizeof(check_log), "%s/check.log", ws);
+            char prompt[MAX_STR];
+            snprintf(prompt, sizeof(prompt),
+                "Run test suite for " C_BOLD "%s" C_RESET "? ["
+                C_GREEN "Yes" C_RESET "/" C_RED "No" C_RESET "] ", queue[qi]);
+            if (confirm(prompt)) {
+                char check_cmd[2048];
+                snprintf(check_cmd, sizeof(check_cmd),
+                    "bash -c 'source \"%s\" && cd \"%s\" && check' > \"%s\" 2>&1",
+                    pbfile, ws, check_log);
+                int rc = run(check_cmd);
+                char tail_cmd[MAX_STR];
+                snprintf(tail_cmd, sizeof(tail_cmd), "tail -40 '%s'", check_log);
+                run(tail_cmd);
+                if (rc != 0) {
+                    printf(C_RED "  check() failed (rc=%d)" C_RESET "\n", rc);
+                    if (!confirm("Continue anyway? [" C_GREEN "Yes" C_RESET
+                                 "/" C_RED "No" C_RESET "] "))
+                        exit(1);
+                } else {
+                    printf(C_GREEN "  check() passed" C_RESET "\n");
+                }
+            }
+        }
+
+        /* package() + merge */
+        char pkgdir[MAX_STR];
+        snprintf(pkgdir, sizeof(pkgdir), "%s/pkg", ws);
+        char mk_cmd[MAX_STR];
+        snprintf(mk_cmd, sizeof(mk_cmd), "rm -rf '%s' && mkdir -p '%s'", pkgdir, pkgdir);
+        run(mk_cmd);
+
+        printf(C_BOLD "==> Installing %s" C_RESET "\n", queue[qi]);
+        lpm_log("Installing %s", queue[qi]);
+
+        char inst_cmd[2048];
+        snprintf(inst_cmd, sizeof(inst_cmd),
+            "bash -c 'source \"%s\" && cd \"%s\" && pkgdir=\"%s\" && package' >> \"%s\" 2>&1",
+            pbfile, ws, pkgdir, LPM_LOG);
+
+        if (run(inst_cmd) != 0) {
+            fprintf(stderr, C_RED "error: " C_RESET
+                    "Install failed for %s. See %s\n", queue[qi], LPM_LOG);
+            lpm_log("Install FAILED: %s", queue[qi]);
+            exit(1);
+        }
+
+        printf(C_CYAN "  ->" C_RESET " Merging into /...\n");
+        char merge_cmd[MAX_STR];
+        snprintf(merge_cmd, sizeof(merge_cmd), "cp -a '%s'/. /", pkgdir);
+        if (run(merge_cmd) != 0) {
+            fprintf(stderr, C_RED "error: " C_RESET "Merge failed for %s\n", queue[qi]);
+            exit(1);
+        }
+
+        db_add(pkg.pkgname, pkg.pkgver, pkg.pkgrel);
+        printf(C_GREEN "==> Installed %s %s-%s" C_RESET "\n",
+               pkg.pkgname, pkg.pkgver, pkg.pkgrel);
+        lpm_log("Installed %s %s-%s", pkg.pkgname, pkg.pkgver, pkg.pkgrel);
+    }
+}
