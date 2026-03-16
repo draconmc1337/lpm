@@ -73,3 +73,54 @@ void db_remove(const char *pkgname) {
     fclose(tmp);
     rename(tmp_path, LPM_DB);
 }
+
+/* ── db_track_files ──────────────────────────────────────────────────────── */
+/* Walk pkgdir, record every non-directory file into LPM_FILES_DIR/<pkgname>  */
+void db_track_files(const char *pkgname, const char *pkgdir) {
+    mkdir(LPM_FILES_DIR, 0755);
+
+    char filelist[MAX_STR];
+    snprintf(filelist, sizeof(filelist), "%s/%s", LPM_FILES_DIR, pkgname);
+
+    /* find all non-dir files, strip pkgdir prefix, write paths relative to / */
+    char cmd[MAX_STR * 2];
+    snprintf(cmd, sizeof(cmd),
+        "find '%s' ! -type d | sed 's|^%s||' | sort > '%s'",
+        pkgdir, pkgdir, filelist);
+    system(cmd);
+}
+
+/* ── db_remove_files ─────────────────────────────────────────────────────── */
+/* Delete every file recorded for pkgname, then remove empty parent dirs      */
+void db_remove_files(const char *pkgname) {
+    char filelist[MAX_STR];
+    snprintf(filelist, sizeof(filelist), "%s/%s", LPM_FILES_DIR, pkgname);
+
+    struct stat st;
+    if (stat(filelist, &st) != 0) {
+        fprintf(stderr, C_YELLOW "warning: " C_RESET
+                "No file list for %s — cannot remove files\n", pkgname);
+        return;
+    }
+
+    /* remove each tracked file */
+    char cmd[MAX_STR * 2];
+    snprintf(cmd, sizeof(cmd),
+        "while IFS= read -r f; do"
+        "  [ -f \"$f\" ] && rm -f \"$f\"; "
+        "done < '%s'",
+        filelist);
+    system(cmd);
+
+    /* best-effort: remove empty dirs (deepest first) */
+    snprintf(cmd, sizeof(cmd),
+        "while IFS= read -r f; do"
+        "  d=$(dirname \"$f\"); "
+        "  rmdir --ignore-fail-on-non-empty \"$d\" 2>/dev/null; "
+        "done < '%s'",
+        filelist);
+    system(cmd);
+
+    /* remove the file list itself */
+    remove(filelist);
+}

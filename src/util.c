@@ -51,6 +51,7 @@ int confirm(const char *prompt) {
 void init_dirs(void) {
     mkdir(LPM_BUILD_DIR, 0755);
     mkdir("/var/lib/lpm", 0755);
+    mkdir(LPM_FILES_DIR, 0755);
     /* touch DB and log */
     FILE *f;
     f = fopen(LPM_DB,  "a"); if (f) fclose(f);

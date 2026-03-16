@@ -87,9 +87,65 @@ int pkgbuild_parse(const char *pbfile, Pkg *pkg) {
     }
 
     pkg->has_check     = bash_func_exists(pbfile, "check");
-    pkg->has_uninstall = bash_func_exists(pbfile, "uninstall");
 
     return 0;
+}
+
+/* ── pkgbuild_scan_dangerous ─────────────────────────────────────────────── */
+/* Block pkgbuilds containing dangerous patterns — supply chain protection    */
+int pkgbuild_scan_dangerous(const char *pbfile) {
+    FILE *f = fopen(pbfile, "r");
+    if (!f) return -1;
+
+    static const char *patterns[] = {
+        "rm -rf /",
+        "rm -rf /*",
+        "rm -rf --no-preserve-root",
+        "--no-preserve-root",
+        "mkfs",
+        "dd if=",
+        "dd of=/dev/",
+        "> /dev/sd",
+        "> /dev/nvme",
+        "chmod -R 777 /",
+        "chmod 777 /",
+        ":(){:|:&};:",   /* fork bomb */
+        "wget.*| *bash",
+        "curl.*| *bash",
+        "curl.*| *sh",
+        "wget.*| *sh",
+        NULL
+    };
+
+    char line[2048];
+    int lineno = 0;
+    int blocked = 0;
+
+    while (fgets(line, sizeof(line), f)) {
+        lineno++;
+        /* skip comments */
+        char *trimmed = line;
+        while (*trimmed == ' ' || *trimmed == '\t') trimmed++;
+        if (trimmed[0] == '#') continue;
+
+        for (int i = 0; patterns[i]; i++) {
+            if (strstr(line, patterns[i])) {
+                fprintf(stderr,
+                    C_RED "SECURITY BLOCK: " C_RESET
+                    "dangerous pattern detected in " C_BOLD "%s" C_RESET
+                    " line %d:\n"
+                    "  pattern : " C_RED "%s" C_RESET "\n"
+                    "  line    : %s"
+                    "  Refusing to execute this pkgbuild.\n",
+                    pbfile, lineno, patterns[i], line);
+                lpm_log("SECURITY BLOCK: %s line %d pattern '%s'",
+                        pbfile, lineno, patterns[i]);
+                blocked = 1;
+            }
+        }
+    }
+    fclose(f);
+    return blocked ? -1 : 0;
 }
 
 /* ── dep_satisfied ───────────────────────────────────────────────────────── */

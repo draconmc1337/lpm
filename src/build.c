@@ -55,6 +55,22 @@ static int prepare_workspace(Pkg *pkg) {
             }
         }
 
+        /* check /sources local cache first (LFS chroot) */
+        char local_src[MAX_STR];
+        snprintf(local_src, sizeof(local_src), "/sources/%s", fname);
+        struct stat local_st;
+        if (stat(local_src, &local_st) == 0 && local_st.st_size > 0) {
+            printf(C_CYAN "  ->" C_RESET " Using local source: %s\n", local_src);
+            char cp_cmd[MAX_STR];
+            snprintf(cp_cmd, sizeof(cp_cmd), "cp '%s' '%s'", local_src, dest);
+            if (run(cp_cmd) != 0) {
+                fprintf(stderr, C_RED "error: " C_RESET
+                        "Failed to copy from /sources/%s\n", fname);
+                return -1;
+            }
+            continue;
+        }
+
         printf(C_CYAN "  ->" C_RESET " Fetching %s\n", fname);
         lpm_log("Downloading %s", pkg->source[i]);
 
@@ -69,9 +85,9 @@ static int prepare_workspace(Pkg *pkg) {
             "|| curl -L --progress-bar -o '%s' '%s'",
             part, pkg->source[i], part, pkg->source[i]);
 
-        int dl_rc = run(cmd);  /* run() exits on SIGINT, so .part gets cleaned below */
+        int dl_rc = run(cmd);
         if (dl_rc != 0) {
-            remove(part);  /* cleanup partial .part file */
+            remove(part);
             fprintf(stderr,
                 C_RED "error: " C_RESET
                 "Failed to fetch %s\n"
@@ -292,21 +308,46 @@ void cmd_remove(int argc, char **argv) {
 
     /* critical packages — cannot remove on a running system */
     static const char *critical[] = {
-        /* libc + toolchain */
-        "glibc", "gcc", "binutils", "libgcc", "libstdc++",
-        /* shell + core */
-        "bash", "coreutils", "util-linux", "shadow", "login",
-        /* init system */
+        /* ── LFS base system ── */
+        "man-pages", "iana-etc",
+        "glibc", "zlib", "bzip2", "xz", "lz4", "zstd",
+        "file", "readline", "m4", "bc", "flex",
+        "tcl", "expect", "dejagnu", "pkgconf",
+        "binutils", "gmp", "mpfr", "mpc",
+        "attr", "acl", "libcap", "libxcrypt", "shadow",
+        "gcc", "ncurses", "sed", "psmisc", "gettext",
+        "bison", "grep", "bash", "libtool", "gdbm",
+        "gperf", "expat", "inetutils", "less",
+        "perl", "xml-parser", "intltool",
+        "autoconf", "automake", "openssl",
+        "elfutils", "libffi", "python3",
+        "flit-core", "packaging", "wheel", "setuptools",
+        "ninja", "meson", "kmod", "coreutils",
+        "diffutils", "gawk", "findutils", "groff",
+        "gzip", "kbd", "libpipeline", "make",
+        "patch", "tar", "texinfo", "vim",
+        "markupsafe", "jinja2", "udev",
+        "man-db", "procps-ng", "util-linux",
+        "e2fsprogs", "sysklogd",
+        /* ── init system ── */
         "dinit", "sysvinit", "runit", "s6", "openrc",
-        /* kernel + modules */
-        "linux", "kmod", "udev",
-        /* filesystem */
-        "e2fsprogs", "btrfs-progs", "dosfstools",
-        /* bootloader */
-        "grub",
-        /* network base */
-        "iproute2",
-        /* package manager itself */
+        /* ── kernel + boot ── */
+        "linux", "grub", "grub-bios",
+        /* ── network base ── */
+        "iproute2", "inetutils", "openssl",
+        "wget", "curl", "openssh",
+        "networkmanager", "wpa-supplicant", "iwd",
+        "dhcpcd", "net-tools", "iptables", "nftables",
+        /* ── security ── */
+        "linux-pam", "libcap-ng", "audit",
+        "polkit", "sudo", "doas",
+        "ca-certificates", "make-ca", "p11-kit",
+        /* ── filesystem ── */
+        "btrfs-progs", "dosfstools", "xfsprogs",
+        "lvm2", "mdadm",
+        /* ── toolchain ── */
+        "libgcc", "libstdc++", "libgomp",
+        /* ── package manager ── */
         "lpm",
         NULL
     };
@@ -339,26 +380,12 @@ void cmd_remove(int argc, char **argv) {
     if (!confirm("\nWould you like to remove these packages? [" C_GREEN "Yes" C_RESET "/" C_RED "No" C_RESET "] ")) { printf("Aborted.\n"); exit(0); }
 
     for (int i = 0; i < npkgs; i++) {
-        printf(C_CYAN "::" C_RESET " Removing " C_BOLD "%s" C_RESET "...", pkgs[i]);
+        printf(C_CYAN "::" C_RESET " Removing " C_BOLD "%s" C_RESET "...\n", pkgs[i]);
         fflush(stdout);
         lpm_log("Removing %s", pkgs[i]);
 
-        char pbfile[MAX_STR];
-        snprintf(pbfile, sizeof(pbfile), "%s/pkgbuild_%s", LPM_PKGBUILD_DIR, pkgs[i]);
-
-        struct stat st;
-        if (stat(pbfile, &st) == 0) {
-            /* check if uninstall() exists */
-            Pkg pkg;
-            pkgbuild_parse(pbfile, &pkg);
-            if (pkg.has_uninstall) {
-                char cmd[1024];
-                snprintf(cmd, sizeof(cmd),
-                    "bash -c \"source '%s' && uninstall\" >> '%s' 2>&1",
-                    pbfile, LPM_LOG);
-                run(cmd);
-            }
-        }
+        /* remove tracked files — no pkgbuild uninstall() hook, ever */
+        db_remove_files(pkgs[i]);
 
         db_remove(pkgs[i]);
 
@@ -369,7 +396,7 @@ void cmd_remove(int argc, char **argv) {
         snprintf(rm_cmd, sizeof(rm_cmd), "rm -rf '%s'", cache);
         run(rm_cmd);
 
-        printf(" " C_GREEN "done" C_RESET "\n");
+        printf(C_GREEN "==> Removed %s" C_RESET "\n", pkgs[i]);
         lpm_log("Removed %s", pkgs[i]);
     }
 }
@@ -581,6 +608,12 @@ void cmd_sync(int argc, char **argv) {
             continue;
         }
 
+        /* ── security scan before executing anything ── */
+        if (pkgbuild_scan_dangerous(pbfile) != 0) {
+            lpm_log("SECURITY BLOCK: refused to build %s", cur_argv);
+            die("pkgbuild_%s failed security scan — refusing to build", cur_argv);
+        }
+
         if (prepare_workspace(&pkg) != 0)
             die("Failed to prepare workspace for %s", argv[i]);
 
@@ -608,8 +641,12 @@ void cmd_sync(int argc, char **argv) {
 
         if (run(build_cmd) != 0) {
             fprintf(stderr, C_RED "error: " C_RESET "Build failed for %s. See %s\n",
-                    argv[i], LPM_LOG);
-            lpm_log("Build FAILED: %s", argv[i]);
+                    cur_argv, LPM_LOG);
+            /* auto clean cache on build failure */
+            char rcc_cmd[MAX_STR];
+            snprintf(rcc_cmd, sizeof(rcc_cmd), "rm -rf '%s'", ws);
+            run(rcc_cmd);
+            lpm_log("Build FAILED + cache auto-cleaned: %s", cur_argv);
             exit(1);
         }
 
@@ -620,7 +657,7 @@ void cmd_sync(int argc, char **argv) {
 
             char prompt[MAX_STR];
             snprintf(prompt, sizeof(prompt),
-                "Run test suite for " C_BOLD "%s" C_RESET "? [Y/N] ", argv[i]);
+                "Run test suite for " C_BOLD "%s" C_RESET "? [Y/N] ", cur_argv);
             if (confirm(prompt)) {
                 printf(C_CYAN "::" C_RESET " Running check()...\n");
                 char check_cmd[2048];
@@ -629,7 +666,6 @@ void cmd_sync(int argc, char **argv) {
                     pbfile, ws, check_log);
                 int rc = run(check_cmd);
 
-                /* tail last 40 lines */
                 char tail_cmd[MAX_STR];
                 snprintf(tail_cmd, sizeof(tail_cmd), "tail -40 '%s'", check_log);
                 run(tail_cmd);
@@ -652,8 +688,8 @@ void cmd_sync(int argc, char **argv) {
         snprintf(mk_cmd, sizeof(mk_cmd), "rm -rf '%s' && mkdir -p '%s'", pkgdir, pkgdir);
         run(mk_cmd);
 
-        printf(C_BOLD "==> Installing %s" C_RESET "\n", argv[i]);
-        lpm_log("Installing %s", argv[i]);
+        printf(C_BOLD "==> Installing %s" C_RESET "\n", cur_argv);
+        lpm_log("Installing %s", cur_argv);
 
         char inst_cmd[2048];
         snprintf(inst_cmd, sizeof(inst_cmd),
@@ -662,18 +698,29 @@ void cmd_sync(int argc, char **argv) {
 
         if (run(inst_cmd) != 0) {
             fprintf(stderr, C_RED "error: " C_RESET "Install failed for %s. See %s\n",
-                    argv[i], LPM_LOG);
-            lpm_log("Install FAILED: %s", argv[i]);
+                    cur_argv, LPM_LOG);
+            lpm_log("Install FAILED: %s", cur_argv);
             exit(1);
         }
 
-        /* merge into / */
-        printf(C_CYAN "  ->" C_RESET " Merging into /...\n");
-        char merge_cmd[MAX_STR];
-        snprintf(merge_cmd, sizeof(merge_cmd), "cp -a '%s'/. /", pkgdir);
-        if (run(merge_cmd) != 0) {
-            fprintf(stderr, C_RED "error: " C_RESET "Merge failed for %s\n", argv[i]);
-            exit(1);
+        /* merge — check if pkgdir has files (some packages install directly) */
+        char check_empty[MAX_STR];
+        snprintf(check_empty, sizeof(check_empty),
+            "[ \"$(ls -A '%s' 2>/dev/null)\" ]", pkgdir);
+
+        if (run(check_empty) == 0) {
+            printf(C_CYAN "  ->" C_RESET " Merging into /...\n");
+            char merge_cmd[MAX_STR];
+            snprintf(merge_cmd, sizeof(merge_cmd),
+                "cp -a --remove-destination '%s'/. /", pkgdir);
+            if (run(merge_cmd) != 0) {
+                fprintf(stderr, C_RED "error: " C_RESET "Merge failed for %s\n", cur_argv);
+                exit(1);
+            }
+            /* track installed files for safe removal later */
+            db_track_files(pkg.pkgname, pkgdir);
+        } else {
+            printf(C_CYAN "  ->" C_RESET " Direct install (pkgdir empty), skipping merge\n");
         }
 
         db_add(pkg.pkgname, pkg.pkgver, pkg.pkgrel);
@@ -808,6 +855,12 @@ void cmd_local(int argc, char **argv) {
             continue;
         }
 
+        /* ── security scan before executing anything ── */
+        if (pkgbuild_scan_dangerous(pbfile) != 0) {
+            lpm_log("SECURITY BLOCK: refused to build %s", queue[qi]);
+            die("pkgbuild_%s failed security scan — refusing to build", queue[qi]);
+        }
+
         char ws[MAX_STR];
         snprintf(ws, sizeof(ws), "%s/%s", LPM_BUILD_DIR, pkg.pkgname);
         mkdir(ws, 0755);
@@ -836,7 +889,11 @@ void cmd_local(int argc, char **argv) {
         if (run(build_cmd) != 0) {
             fprintf(stderr, C_RED "error: " C_RESET
                     "Build failed for %s. See %s\n", queue[qi], LPM_LOG);
-            lpm_log("Build FAILED: %s", queue[qi]);
+            /* auto clean cache on build failure */
+            char rcc_cmd[MAX_STR];
+            snprintf(rcc_cmd, sizeof(rcc_cmd), "rm -rf '%s'", ws);
+            run(rcc_cmd);
+            lpm_log("Build FAILED + cache auto-cleaned: %s", queue[qi]);
             exit(1);
         }
 
@@ -890,12 +947,24 @@ void cmd_local(int argc, char **argv) {
             exit(1);
         }
 
-        printf(C_CYAN "  ->" C_RESET " Merging into /...\n");
-        char merge_cmd[MAX_STR];
-        snprintf(merge_cmd, sizeof(merge_cmd), "cp -a '%s'/. /", pkgdir);
-        if (run(merge_cmd) != 0) {
-            fprintf(stderr, C_RED "error: " C_RESET "Merge failed for %s\n", queue[qi]);
-            exit(1);
+        /* merge — check if pkgdir has files (some packages install directly) */
+        char check_empty[MAX_STR];
+        snprintf(check_empty, sizeof(check_empty),
+            "[ \"$(ls -A '%s' 2>/dev/null)\" ]", pkgdir);
+
+        if (run(check_empty) == 0) {
+            printf(C_CYAN "  ->" C_RESET " Merging into /...\n");
+            char merge_cmd[MAX_STR];
+            snprintf(merge_cmd, sizeof(merge_cmd),
+                "cp -a --remove-destination '%s'/. /", pkgdir);
+            if (run(merge_cmd) != 0) {
+                fprintf(stderr, C_RED "error: " C_RESET "Merge failed for %s\n", queue[qi]);
+                exit(1);
+            }
+            /* track installed files for safe removal later */
+            db_track_files(pkg.pkgname, pkgdir);
+        } else {
+            printf(C_CYAN "  ->" C_RESET " Direct install (pkgdir empty), skipping merge\n");
         }
 
         db_add(pkg.pkgname, pkg.pkgver, pkg.pkgrel);

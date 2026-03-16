@@ -13,11 +13,12 @@
 #include <stdarg.h>
 
 /* ── paths ──────────────────────────────────────────────────────────────── */
-#define LPM_VERSION      "v1.1.2-alpha"
+#define LPM_VERSION      "v1.2.0-alpha"
 #define LPM_PKGBUILD_DIR "/usr/src/lpm"
 #define LPM_BUILD_DIR    "/var/cache/lpm"
 #define LPM_DB           "/var/lib/lpm/installed"
 #define LPM_LOG          "/var/log/lpm.log"
+#define LPM_FILES_DIR    "/var/lib/lpm/files"
 
 /* ── colors ─────────────────────────────────────────────────────────────── */
 #define C_RED    "\033[0;31m"
@@ -48,7 +49,6 @@ typedef struct {
     char md5sums[MAX_SRCS][MAX_STR];
     char pbfile[MAX_STR];   /* full path */
     int  has_check;
-    int  has_uninstall;
 } Pkg;
 
 /* ── util.c ──────────────────────────────────────────────────────────────── */
@@ -65,10 +65,13 @@ int   db_is_installed(const char *pkgname);
 char *db_get_version(const char *pkgname);   /* returns malloc'd string or NULL */
 void  db_add(const char *pkgname, const char *ver, const char *rel);
 void  db_remove(const char *pkgname);
+void  db_track_files(const char *pkgname, const char *pkgdir);  /* record installed files */
+void  db_remove_files(const char *pkgname);                     /* delete tracked files */
 
 /* ── pkgbuild.c ──────────────────────────────────────────────────────────── */
 int   pkgbuild_parse(const char *pbfile, Pkg *pkg);
 int   dep_satisfied(const char *spec);        /* "name" or "name>=ver" */
+int   pkgbuild_scan_dangerous(const char *pbfile);  /* security scan */
 
 /* ── build.c ─────────────────────────────────────────────────────────────── */
 void  cmd_check(int argc, char **argv);
