@@ -146,20 +146,20 @@ char *reverse_deps(const char *target) {
     while (fgets(line, sizeof(line), db)) {
         line[strcspn(line, "\n")] = '\0';
         char iname[MAX_STR];
-        strncpy(iname, line, MAX_STR - 1);
+        snprintf(iname, MAX_STR, "%s", line);
         char *eq = strchr(iname, '=');
         if (eq) *eq = '\0';
 
         if (strcmp(iname, target) == 0) continue;
 
-        char pbfile[MAX_STR];
+        char pbfile[1024];
         snprintf(pbfile, sizeof(pbfile), "%s/pkgbuild_%s", LPM_PKGBUILD_DIR, iname);
 
         char deps[MAX_DEPS][MAX_STR];
         int n = bash_array(pbfile, "depends", deps, MAX_DEPS);
         for (int i = 0; i < n; i++) {
             char depname[MAX_STR];
-            strncpy(depname, deps[i], MAX_STR - 1);
+            snprintf(depname, MAX_STR, "%s", deps[i]);
             /* strip operator */
             char *op = strpbrk(depname, "><=");
             if (op) *op = '\0';

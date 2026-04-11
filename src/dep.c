@@ -3,7 +3,6 @@
 #define MAX_QUEUE 256
 
 /* repo folders to search — same order as cmd_sync */
-static const char *REPO_FOLDERS[] = { "base", "extra", "lotus", NULL };
 #define REPO_BASE "https://raw.githubusercontent.com/draconmc1337/lotus-repository/main"
 
 typedef struct {
@@ -41,15 +40,6 @@ static void dep_name_only(const char *spec, char *out) {
     if (op) *op = '\0';
 }
 
-/* detect which repo folder a pkgbuild is in */
-static void detect_folder(const char *pkgname, char *folder_out) {
-    strncpy(folder_out, "?", 15);
-    /* check local /usr/src/lpm — pkgbuild already fetched */
-    /* we derive folder from a simple heuristic: try each subfolder path */
-    /* Since we only have the local pkgbuild, just mark as unknown */
-    /* cmd_sync sets folder during fetch — dep tree uses local pkgbuilds */
-    (void)pkgname;
-}
 
 static void collect(const char *pkgname, int depth) {
     if (already_seen(pkgname)) return;
@@ -72,7 +62,7 @@ static void collect(const char *pkgname, int depth) {
     if (node.has_src) {
         Pkg pkg;
         pkgbuild_parse(pbfile, &pkg);
-        strncpy(node.ver, pkg.pkgver, MAX_STR - 1);
+        snprintf(node.ver, MAX_STR, "%s", pkg.pkgver);
         resolved[nresolved++] = node;
         for (int i = 0; i < pkg.ndepends; i++) {
             char depname[MAX_STR];

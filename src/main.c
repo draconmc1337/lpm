@@ -7,7 +7,7 @@ static void usage(void) {
     printf("  -bi  <pkg...>   Build + install using local PKGBUILD (offline)\n");
     printf("  -Sy  <pkg...>   Fetch PKGBUILD only (no build)\n");
     printf("  -c   <pkg...>   Run test suite\n");
-    printf("  -r   <pkg...>   Remove  (--force to skip dep check)\n");
+    printf("  -r   <pkg...>   Remove  (--force to skip dep/critical check, --no-confirm for scripts)\n");
     printf("  -rcc [pkg...]   Remove build cache\n");
     printf("  -u   [pkg...]   Update  (all installed if no args)\n");
     printf("  -s   <term>     Search available packages\n");
@@ -16,7 +16,11 @@ static void usage(void) {
     printf("  -l              List installed packages\n");
     printf("  -v              Print version\n");
     printf("  -h              Show this help\n\n");
+    printf("Flags for -S and -bi:\n");
+    printf("  --yes           Skip all prompts; auto-run check()\n");
+    printf("  --strict        Treat check() failure as a hard install block\n\n");
     printf("PKGBUILD: %s/pkgbuild_<name>\n", LPM_PKGBUILD_DIR);
+    printf("Logs:     %s/<pkgname>.log\n", LPM_LOG_DIR);
 }
 
 int main(int argc, char **argv) {

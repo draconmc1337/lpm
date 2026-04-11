@@ -14,7 +14,7 @@ void cmd_rcc(int argc, char **argv) {
                 continue;
             }
             /* get size */
-            char size_cmd[MAX_STR];
+            char size_cmd[1024];
             snprintf(size_cmd, sizeof(size_cmd), "du -sh '%s' 2>/dev/null | cut -f1", cachedir);
             char sz[32] = "?";
             FILE *p = popen(size_cmd, "r");
@@ -22,7 +22,7 @@ void cmd_rcc(int argc, char **argv) {
 
             printf("  Cleaning " C_BOLD "%s" C_RESET " (%s)...", argv[i], sz);
             fflush(stdout);
-            char rm_cmd[MAX_STR];
+            char rm_cmd[1024];
             snprintf(rm_cmd, sizeof(rm_cmd), "rm -rf '%s'", cachedir);
             system(rm_cmd);
             printf(" " C_GREEN "done" C_RESET "\n");
@@ -50,7 +50,7 @@ void cmd_rcc(int argc, char **argv) {
     for (int i = 0; i < ntargets; i++) {
         char cachedir[MAX_STR];
         snprintf(cachedir, sizeof(cachedir), "%s/%s", LPM_BUILD_DIR, targets[i]);
-        char size_cmd[MAX_STR];
+        char size_cmd[1024];
         snprintf(size_cmd, sizeof(size_cmd), "du -sh '%s' 2>/dev/null | cut -f1", cachedir);
         char sz[32] = "?";
         FILE *p = popen(size_cmd, "r");
@@ -63,7 +63,7 @@ void cmd_rcc(int argc, char **argv) {
     for (int i = 0; i < ntargets; i++) {
         char cachedir[MAX_STR];
         snprintf(cachedir, sizeof(cachedir), "%s/%s", LPM_BUILD_DIR, targets[i]);
-        char rm_cmd[MAX_STR];
+        char rm_cmd[1024];
         snprintf(rm_cmd, sizeof(rm_cmd), "rm -rf '%s'", cachedir);
         system(rm_cmd);
         lpm_log("Cache removed: %s", targets[i]);

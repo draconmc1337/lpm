@@ -1,0 +1,1540 @@
+🭃diinki_ lotus ./lpm🭞
+🭧🭒 ➜  make clean                                                                                       🬈🬖🬥🬅 time:0s 🬖🬥🬔🬗
+rm -f lpm
+🭃diinki_ lotus ./lpm🭞
+🭧🭒 ➜  make                                                                                             🬈🬖🬥🬅 time:0s 🬖🬥🬔🬗
+gcc -Wall -Wextra -O2 -Iinclude -o lpm src/main.c src/util.c src/db.c src/pkgbuild.c src/build.c src/search.c src/cache.c src/dep.c
+src/db.c: In function ‘scan_pkgdir’:
+src/db.c:116:62: warning: ‘snprintf’ output may be truncated before the last format character [-Wformat-truncation=]
+  116 |         snprintf(abs_in_pkgdir, sizeof(abs_in_pkgdir), "%s/%s", base, rel_child);
+      |                                                              ^
+src/db.c:116:9: note: ‘snprintf’ output 2 or more bytes (assuming 513) into a destination of size 512
+  116 |         snprintf(abs_in_pkgdir, sizeof(abs_in_pkgdir), "%s/%s", base, rel_child);
+      |         ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+src/db.c:138:46: warning: ‘snprintf’ output may be truncated before the last format character [-Wformat-truncation=]
+  138 |             snprintf(dest, sizeof(dest), "/%s", rel_child);
+      |                                              ^
+src/db.c:138:13: note: ‘snprintf’ output between 2 and 513 bytes into a destination of size 512
+  138 |             snprintf(dest, sizeof(dest), "/%s", rel_child);
+      |             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+src/db.c: In function ‘db_files_save’:
+src/db.c:163:45: warning: ‘/files.list’ directive output may be truncated writing 11 bytes into a region of size between 1 and 512 [-Wformat-truncation=]
+  163 |     snprintf(listpath, sizeof(listpath), "%s/files.list", dir);
+      |                                             ^~~~~~~~~~~
+src/db.c:163:5: note: ‘snprintf’ output between 12 and 523 bytes into a destination of size 512
+  163 |     snprintf(listpath, sizeof(listpath), "%s/files.list", dir);
+      |     ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+src/pkgbuild.c: In function ‘reverse_deps’:
+src/pkgbuild.c:162:41: warning: ‘%s’ directive output may be truncated writing up to 32767 bytes into a region of size 512 [-Wformat-truncation=]
+  162 |             snprintf(depname, MAX_STR, "%s", deps[i]);
+      |                                         ^~
+src/pkgbuild.c:162:13: note: ‘snprintf’ output between 1 and 32768 bytes into a destination of size 512
+  162 |             snprintf(depname, MAX_STR, "%s", deps[i]);
+      |             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+src/build.c:2:30: error: unknown type name ‘Pkg’
+    2 | static int prepare_workspace(Pkg *pkg) {
+      |                              ^~~
+src/build.c:122:27: error: unknown type name ‘Pkg’
+  122 | static int verify_sources(Pkg *pkg, const char *ws) {
+      |                           ^~~
+src/build.c: In function ‘cmd_check’:
+src/build.c:180:3: error: implicit declaration of function ‘check_root’ [-Wimplicit-function-declaration]
+  180 |   check_root();
+      |   ^~~~~~~~~~
+src/build.c:181:3: error: implicit declaration of function ‘init_dirs’ [-Wimplicit-function-declaration]
+  181 |   init_dirs();
+      |   ^~~~~~~~~
+src/build.c:183:5: error: implicit declaration of function ‘die’ [-Wimplicit-function-declaration]
+  183 |     die("No package specified.\nUsage: lpm -c <package>");
+      |     ^~~
+src/build.c:186:17: error: ‘MAX_STR’ undeclared (first use in this function)
+  186 |     char pbfile[MAX_STR];
+      |                 ^~~~~~~
+src/build.c:186:17: note: each undeclared identifier is reported only once for each function it appears in
+src/build.c:187:5: error: implicit declaration of function ‘snprintf’ [-Wimplicit-function-declaration]
+  187 |     snprintf(pbfile, sizeof(pbfile), "%s/pkgbuild_%s", LPM_PKGBUILD_DIR,
+      |     ^~~~~~~~
+src/build.c:1:1: note: include ‘<stdio.h>’ or provide a declaration of ‘snprintf’
+  +++ |+#include <stdio.h>
+    1 | /* ensure build workspace exists, download sources */
+src/build.c:187:5: warning: incompatible implicit declaration of built-in function ‘snprintf’ [-Wbuiltin-declaration-mismatch]
+  187 |     snprintf(pbfile, sizeof(pbfile), "%s/pkgbuild_%s", LPM_PKGBUILD_DIR,
+      |     ^~~~~~~~
+src/build.c:187:5: note: include ‘<stdio.h>’ or provide a declaration of ‘snprintf’
+src/build.c:187:56: error: ‘LPM_PKGBUILD_DIR’ undeclared (first use in this function)
+  187 |     snprintf(pbfile, sizeof(pbfile), "%s/pkgbuild_%s", LPM_PKGBUILD_DIR,
+      |                                                        ^~~~~~~~~~~~~~~~
+src/build.c:190:5: error: unknown type name ‘Pkg’
+  190 |     Pkg pkg;
+      |     ^~~
+src/build.c:191:9: error: implicit declaration of function ‘pkgbuild_parse’ [-Wimplicit-function-declaration]
+  191 |     if (pkgbuild_parse(pbfile, &pkg) != 0)
+      |         ^~~~~~~~~~~~~~
+src/build.c:195:39: error: ‘LPM_BUILD_DIR’ undeclared (first use in this function)
+  195 |     snprintf(ws, sizeof(ws), "%s/%s", LPM_BUILD_DIR, pkg.pkgname);
+      |                                       ^~~~~~~~~~~~~
+src/build.c:195:57: error: request for member ‘pkgname’ in something not a structure or union
+  195 |     snprintf(ws, sizeof(ws), "%s/%s", LPM_BUILD_DIR, pkg.pkgname);
+      |                                                         ^
+src/build.c:199:17: error: storage size of ‘st’ isn’t known
+  199 |     struct stat st;
+      |                 ^~
+src/build.c:200:9: error: implicit declaration of function ‘stat’ [-Wimplicit-function-declaration]
+  200 |     if (stat(built, &st) != 0)
+      |         ^~~~
+src/build.c:204:13: error: request for member ‘has_check’ in something not a structure or union
+  204 |     if (!pkg.has_check) {
+      |             ^
+src/build.c:205:7: error: implicit declaration of function ‘warn’ [-Wimplicit-function-declaration]
+  205 |       warn("No check() defined in pkgbuild_%s — skipping", argv[i]);
+      |       ^~~~
+src/build.c:215:37: error: expected ‘)’ before ‘C_BOLD’
+  215 |                "Run test suite for " C_BOLD "%s" C_RESET "? [Y/N] ", argv[i]);
+      |                                     ^~~~~~~
+      |                                     )
+src/build.c:214:15: note: to match this ‘(’
+  214 |       snprintf(prompt, sizeof(prompt),
+      |               ^
+src/build.c:216:12: error: implicit declaration of function ‘confirm’ [-Wimplicit-function-declaration]
+  216 |       if (!confirm(prompt)) {
+      |            ^~~~~~~
+src/build.c:217:9: error: implicit declaration of function ‘printf’ [-Wimplicit-function-declaration]
+  217 |         printf("Skipped.\n");
+      |         ^~~~~~
+src/build.c:217:9: note: include ‘<stdio.h>’ or provide a declaration of ‘printf’
+src/build.c:217:9: warning: incompatible implicit declaration of built-in function ‘printf’ [-Wbuiltin-declaration-mismatch]
+src/build.c:217:9: note: include ‘<stdio.h>’ or provide a declaration of ‘printf’
+src/build.c:213:12: warning: unused variable ‘prompt’ [-Wunused-variable]
+  213 |       char prompt[MAX_STR];
+      |            ^~~~~~
+src/build.c:221:5: warning: incompatible implicit declaration of built-in function ‘printf’ [-Wbuiltin-declaration-mismatch]
+  221 |     printf(C_CYAN "::" C_RESET " Running test suite for " C_BOLD "%s" C_RESET
+      |     ^~~~~~
+src/build.c:221:5: note: include ‘<stdio.h>’ or provide a declaration of ‘printf’
+src/build.c:221:12: error: ‘C_CYAN’ undeclared (first use in this function)
+  221 |     printf(C_CYAN "::" C_RESET " Running test suite for " C_BOLD "%s" C_RESET
+      |            ^~~~~~
+src/build.c:221:18: error: expected ‘)’ before string constant
+  221 |     printf(C_CYAN "::" C_RESET " Running test suite for " C_BOLD "%s" C_RESET
+      |           ~      ^~~~~
+      |                  )
+src/build.c:224:22: error: expected ‘)’ before ‘C_CYAN’
+  224 |     printf("   Log: " C_CYAN "%s" C_RESET "\n", check_log);
+      |           ~          ^~~~~~~
+      |                      )
+src/build.c:225:5: error: implicit declaration of function ‘lpm_log’ [-Wimplicit-function-declaration]
+  225 |     lpm_log("Running check() for %s", argv[i]);
+      |     ^~~~~~~
+src/build.c:232:14: error: implicit declaration of function ‘run’ [-Wimplicit-function-declaration]
+  232 |     int rc = run(cmd);
+      |              ^~~
+src/build.c:235:16: error: expected ‘)’ before ‘C_BOLD’
+  235 |     printf("\n" C_BOLD
+      |           ~    ^~~~~~~
+      |                )
+src/build.c:241:16: error: expected ‘)’ before ‘C_BOLD’
+  241 |     printf("\n" C_BOLD
+      |           ~    ^~~~~~~
+      |                )
+src/build.c:252:5: error: unknown type name ‘FILE’
+  252 |     FILE *p = popen(count_cmd, "r");                                           \
+      |     ^~~~
+src/build.c:260:5: note: in expansion of macro ‘COUNT’
+  260 |     COUNT(passes, "PASS")
+      |     ^~~~~
+src/build.c:252:5: note: ‘FILE’ is defined in header ‘<stdio.h>’; this is probably fixable by adding ‘#include <stdio.h>’
+  252 |     FILE *p = popen(count_cmd, "r");                                           \
+      |     ^~~~
+src/build.c:260:5: note: in expansion of macro ‘COUNT’
+  260 |     COUNT(passes, "PASS")
+      |     ^~~~~
+src/build.c:252:15: error: implicit declaration of function ‘popen’ [-Wimplicit-function-declaration]
+  252 |     FILE *p = popen(count_cmd, "r");                                           \
+      |               ^~~~~
+src/build.c:260:5: note: in expansion of macro ‘COUNT’
+  260 |     COUNT(passes, "PASS")
+      |     ^~~~~
+src/build.c:255:7: error: implicit declaration of function ‘fscanf’ [-Wimplicit-function-declaration]
+  255 |       fscanf(p, "%d", &var);                                                   \
+      |       ^~~~~~
+src/build.c:260:5: note: in expansion of macro ‘COUNT’
+  260 |     COUNT(passes, "PASS")
+      |     ^~~~~
+src/build.c:255:7: note: include ‘<stdio.h>’ or provide a declaration of ‘fscanf’
+  255 |       fscanf(p, "%d", &var);                                                   \
+      |       ^~~~~~
+src/build.c:260:5: note: in expansion of macro ‘COUNT’
+  260 |     COUNT(passes, "PASS")
+      |     ^~~~~
+src/build.c:255:7: warning: incompatible implicit declaration of built-in function ‘fscanf’ [-Wbuiltin-declaration-mismatch]
+  255 |       fscanf(p, "%d", &var);                                                   \
+      |       ^~~~~~
+src/build.c:260:5: note: in expansion of macro ‘COUNT’
+  260 |     COUNT(passes, "PASS")
+      |     ^~~~~
+src/build.c:255:7: note: include ‘<stdio.h>’ or provide a declaration of ‘fscanf’
+  255 |       fscanf(p, "%d", &var);                                                   \
+      |       ^~~~~~
+src/build.c:260:5: note: in expansion of macro ‘COUNT’
+  260 |     COUNT(passes, "PASS")
+      |     ^~~~~
+src/build.c:256:7: error: implicit declaration of function ‘pclose’ [-Wimplicit-function-declaration]
+  256 |       pclose(p);                                                               \
+      |       ^~~~~~
+src/build.c:260:5: note: in expansion of macro ‘COUNT’
+  260 |     COUNT(passes, "PASS")
+      |     ^~~~~
+src/build.c:252:5: error: unknown type name ‘FILE’
+  252 |     FILE *p = popen(count_cmd, "r");                                           \
+      |     ^~~~
+src/build.c:261:5: note: in expansion of macro ‘COUNT’
+  261 |     COUNT(fails, "FAIL")
+      |     ^~~~~
+src/build.c:252:5: note: ‘FILE’ is defined in header ‘<stdio.h>’; this is probably fixable by adding ‘#include <stdio.h>’
+  252 |     FILE *p = popen(count_cmd, "r");                                           \
+      |     ^~~~
+src/build.c:261:5: note: in expansion of macro ‘COUNT’
+  261 |     COUNT(fails, "FAIL")
+      |     ^~~~~
+src/build.c:255:7: warning: incompatible implicit declaration of built-in function ‘fscanf’ [-Wbuiltin-declaration-mismatch]
+  255 |       fscanf(p, "%d", &var);                                                   \
+      |       ^~~~~~
+src/build.c:261:5: note: in expansion of macro ‘COUNT’
+  261 |     COUNT(fails, "FAIL")
+      |     ^~~~~
+src/build.c:255:7: note: include ‘<stdio.h>’ or provide a declaration of ‘fscanf’
+  255 |       fscanf(p, "%d", &var);                                                   \
+      |       ^~~~~~
+src/build.c:261:5: note: in expansion of macro ‘COUNT’
+  261 |     COUNT(fails, "FAIL")
+      |     ^~~~~
+src/build.c:252:5: error: unknown type name ‘FILE’
+  252 |     FILE *p = popen(count_cmd, "r");                                           \
+      |     ^~~~
+src/build.c:262:5: note: in expansion of macro ‘COUNT’
+  262 |     COUNT(xfails, "XFAIL")
+      |     ^~~~~
+src/build.c:252:5: note: ‘FILE’ is defined in header ‘<stdio.h>’; this is probably fixable by adding ‘#include <stdio.h>’
+  252 |     FILE *p = popen(count_cmd, "r");                                           \
+      |     ^~~~
+src/build.c:262:5: note: in expansion of macro ‘COUNT’
+  262 |     COUNT(xfails, "XFAIL")
+      |     ^~~~~
+src/build.c:255:7: warning: incompatible implicit declaration of built-in function ‘fscanf’ [-Wbuiltin-declaration-mismatch]
+  255 |       fscanf(p, "%d", &var);                                                   \
+      |       ^~~~~~
+src/build.c:262:5: note: in expansion of macro ‘COUNT’
+  262 |     COUNT(xfails, "XFAIL")
+      |     ^~~~~
+src/build.c:255:7: note: include ‘<stdio.h>’ or provide a declaration of ‘fscanf’
+  255 |       fscanf(p, "%d", &var);                                                   \
+      |       ^~~~~~
+src/build.c:262:5: note: in expansion of macro ‘COUNT’
+  262 |     COUNT(xfails, "XFAIL")
+      |     ^~~~~
+src/build.c:252:5: error: unknown type name ‘FILE’
+  252 |     FILE *p = popen(count_cmd, "r");                                           \
+      |     ^~~~
+src/build.c:263:5: note: in expansion of macro ‘COUNT’
+  263 |     COUNT(errors, "ERROR")
+      |     ^~~~~
+src/build.c:252:5: note: ‘FILE’ is defined in header ‘<stdio.h>’; this is probably fixable by adding ‘#include <stdio.h>’
+  252 |     FILE *p = popen(count_cmd, "r");                                           \
+      |     ^~~~
+src/build.c:263:5: note: in expansion of macro ‘COUNT’
+  263 |     COUNT(errors, "ERROR")
+      |     ^~~~~
+src/build.c:255:7: warning: incompatible implicit declaration of built-in function ‘fscanf’ [-Wbuiltin-declaration-mismatch]
+  255 |       fscanf(p, "%d", &var);                                                   \
+      |       ^~~~~~
+src/build.c:263:5: note: in expansion of macro ‘COUNT’
+  263 |     COUNT(errors, "ERROR")
+      |     ^~~~~
+src/build.c:255:7: note: include ‘<stdio.h>’ or provide a declaration of ‘fscanf’
+  255 |       fscanf(p, "%d", &var);                                                   \
+      |       ^~~~~~
+src/build.c:263:5: note: in expansion of macro ‘COUNT’
+  263 |     COUNT(errors, "ERROR")
+      |     ^~~~~
+src/build.c:267:25: error: expected ‘)’ before ‘C_GREEN’
+  267 |       printf("  PASS : " C_GREEN "%d" C_RESET "\n", passes);
+      |             ~           ^~~~~~~~
+      |                         )
+src/build.c:269:27: error: expected ‘)’ before ‘C_CYAN’
+  269 |         printf("  XFAIL: " C_CYAN "%d" C_RESET "  (expected — OK)\n", xfails);
+      |               ~           ^~~~~~~
+      |                           )
+src/build.c:271:27: error: expected ‘)’ before ‘C_RED’
+  271 |         printf("  FAIL : " C_RED "%d" C_RESET "\n", fails);
+      |               ~           ^~~~~~
+      |                           )
+src/build.c:273:27: error: expected ‘)’ before ‘C_RED’
+  273 |         printf("  ERROR: " C_RED "%d" C_RESET "\n", errors);
+      |               ~           ^~~~~~
+      |                           )
+src/build.c:278:20: error: expected ‘)’ before string constant
+  278 |       printf(C_CYAN "::" C_RESET " check() exited " C_GREEN "clean" C_RESET
+      |             ~      ^~~~~
+      |                    )
+src/build.c:282:7: error: unknown type name ‘FILE’
+  282 |       FILE *f = fopen(cmarker, "w");
+      |       ^~~~
+src/build.c:282:7: note: ‘FILE’ is defined in header ‘<stdio.h>’; this is probably fixable by adding ‘#include <stdio.h>’
+src/build.c:282:17: error: implicit declaration of function ‘fopen’ [-Wimplicit-function-declaration]
+  282 |       FILE *f = fopen(cmarker, "w");
+      |                 ^~~~~
+src/build.c:282:17: note: ‘fopen’ is defined in header ‘<stdio.h>’; this is probably fixable by adding ‘#include <stdio.h>’
+src/build.c:284:9: error: implicit declaration of function ‘fclose’ [-Wimplicit-function-declaration]
+  284 |         fclose(f);
+      |         ^~~~~~
+src/build.c:280:12: warning: unused variable ‘cmarker’ [-Wunused-variable]
+  280 |       char cmarker[MAX_STR];
+      |            ^~~~~~~
+src/build.c:287:20: error: expected ‘)’ before string constant
+  287 |       printf(C_CYAN "::" C_RESET " check() exited with " C_RED
+      |             ~      ^~~~~
+      |                    )
+src/build.c:290:29: error: expected ‘)’ before ‘C_CYAN’
+  290 |       printf("   Full log: " C_CYAN "%s" C_RESET "\n", check_log);
+      |             ~               ^~~~~~~
+      |                             )
+src/build.c:294:9: error: implicit declaration of function ‘exit’ [-Wimplicit-function-declaration]
+  294 |         exit(1);
+      |         ^~~~
+src/build.c:1:1: note: include ‘<stdlib.h>’ or provide a declaration of ‘exit’
+  +++ |+#include <stdlib.h>
+    1 | /* ensure build workspace exists, download sources */
+src/build.c:294:9: warning: incompatible implicit declaration of built-in function ‘exit’ [-Wbuiltin-declaration-mismatch]
+  294 |         exit(1);
+      |         ^~~~
+src/build.c:294:9: note: include ‘<stdlib.h>’ or provide a declaration of ‘exit’
+src/build.c:245:10: warning: unused variable ‘count_cmd’ [-Wunused-variable]
+  245 |     char count_cmd[MAX_STR];
+      |          ^~~~~~~~~
+src/build.c:237:10: warning: unused variable ‘tail_cmd’ [-Wunused-variable]
+  237 |     char tail_cmd[MAX_STR];
+      |          ^~~~~~~~
+src/build.c:209:10: warning: unused variable ‘check_log’ [-Wunused-variable]
+  209 |     char check_log[MAX_STR];
+      |          ^~~~~~~~~
+src/build.c:199:17: warning: unused variable ‘st’ [-Wunused-variable]
+  199 |     struct stat st;
+      |                 ^~
+src/build.c:197:10: warning: unused variable ‘built’ [-Wunused-variable]
+  197 |     char built[MAX_STR];
+      |          ^~~~~
+src/build.c:194:10: warning: unused variable ‘ws’ [-Wunused-variable]
+  194 |     char ws[MAX_STR];
+      |          ^~
+src/build.c:186:10: warning: unused variable ‘pbfile’ [-Wunused-variable]
+  186 |     char pbfile[MAX_STR];
+      |          ^~~~~~
+src/build.c: In function ‘cmd_remove’:
+src/build.c:311:9: error: implicit declaration of function ‘strcmp’ [-Wimplicit-function-declaration]
+  311 |     if (strcmp(argv[i], "--force") == 0)
+      |         ^~~~~~
+src/build.c:1:1: note: include ‘<string.h>’ or provide a declaration of ‘strcmp’
+  +++ |+#include <string.h>
+    1 | /* ensure build workspace exists, download sources */
+src/build.c:327:9: error: implicit declaration of function ‘strncat’ [-Wimplicit-function-declaration]
+  327 |         strncat(pkglist, " ", sizeof(pkglist) - strlen(pkglist) - 1);
+      |         ^~~~~~~
+src/build.c:327:9: note: include ‘<string.h>’ or provide a declaration of ‘strncat’
+src/build.c:327:9: warning: incompatible implicit declaration of built-in function ‘strncat’ [-Wbuiltin-declaration-mismatch]
+src/build.c:327:9: note: include ‘<string.h>’ or provide a declaration of ‘strncat’
+src/build.c:327:49: error: implicit declaration of function ‘strlen’ [-Wimplicit-function-declaration]
+  327 |         strncat(pkglist, " ", sizeof(pkglist) - strlen(pkglist) - 1);
+      |                                                 ^~~~~~
+src/build.c:327:49: note: include ‘<string.h>’ or provide a declaration of ‘strlen’
+src/build.c:327:49: warning: incompatible implicit declaration of built-in function ‘strlen’ [-Wbuiltin-declaration-mismatch]
+src/build.c:327:49: note: include ‘<string.h>’ or provide a declaration of ‘strlen’
+src/build.c:328:7: warning: incompatible implicit declaration of built-in function ‘strncat’ [-Wbuiltin-declaration-mismatch]
+  328 |       strncat(pkglist, pkgs[i], sizeof(pkglist) - strlen(pkglist) - 1);
+      |       ^~~~~~~
+src/build.c:328:7: note: include ‘<string.h>’ or provide a declaration of ‘strncat’
+src/build.c:328:51: warning: incompatible implicit declaration of built-in function ‘strlen’ [-Wbuiltin-declaration-mismatch]
+  328 |       strncat(pkglist, pkgs[i], sizeof(pkglist) - strlen(pkglist) - 1);
+      |                                                   ^~~~~~
+src/build.c:328:51: note: include ‘<string.h>’ or provide a declaration of ‘strlen’
+src/build.c:330:5: error: implicit declaration of function ‘lpm_audit’ [-Wimplicit-function-declaration]
+  330 |     lpm_audit("cmd_remove flags: force=%d no_confirm=%d packages: %s", force,
+      |     ^~~~~~~~~
+src/build.c:337:19: error: implicit declaration of function ‘reverse_deps’ [-Wimplicit-function-declaration]
+  337 |     char *rdeps = reverse_deps(pkgs[i]);
+      |                   ^~~~~~~~~~~~
+src/build.c:337:19: error: initialization of ‘char *’ from ‘int’ makes pointer from integer without a cast [-Wint-conversion]
+src/build.c:339:7: error: implicit declaration of function ‘fprintf’ [-Wimplicit-function-declaration]
+  339 |       fprintf(stderr,
+      |       ^~~~~~~
+src/build.c:339:7: note: include ‘<stdio.h>’ or provide a declaration of ‘fprintf’
+src/build.c:339:7: warning: incompatible implicit declaration of built-in function ‘fprintf’ [-Wbuiltin-declaration-mismatch]
+src/build.c:339:7: note: include ‘<stdio.h>’ or provide a declaration of ‘fprintf’
+src/build.c:339:15: error: ‘stderr’ undeclared (first use in this function)
+  339 |       fprintf(stderr,
+      |               ^~~~~~
+src/build.c:339:15: note: ‘stderr’ is defined in header ‘<stdio.h>’; this is probably fixable by adding ‘#include <stdio.h>’
+src/build.c:340:15: error: ‘C_RED’ undeclared (first use in this function)
+  340 |               C_RED "error: " C_RESET C_BOLD "%s" C_RESET
+      |               ^~~~~
+src/build.c:340:20: error: expected ‘)’ before string constant
+  340 |               C_RED "error: " C_RESET C_BOLD "%s" C_RESET
+      |                    ^~~~~~~~~~
+      |                    )
+src/build.c:339:14: note: to match this ‘(’
+  339 |       fprintf(stderr,
+      |              ^
+src/build.c:347:5: warning: incompatible implicit declaration of built-in function ‘printf’ [-Wbuiltin-declaration-mismatch]
+  347 |     printf("\n");
+      |     ^~~~~~
+src/build.c:347:5: note: include ‘<stdio.h>’ or provide a declaration of ‘printf’
+src/build.c:350:23: error: expected ‘)’ before ‘C_BOLD’
+  350 |              "or use " C_BOLD "-r --force" C_RESET " to override.\n");
+      |                       ^~~~~~~
+      |                       )
+src/build.c:349:13: note: to match this ‘(’
+  349 |       printf("Remove the dependent packages first, "
+      |             ^
+src/build.c:351:7: warning: incompatible implicit declaration of built-in function ‘exit’ [-Wbuiltin-declaration-mismatch]
+  351 |       exit(1);
+      |       ^~~~
+src/build.c:351:7: note: include ‘<stdlib.h>’ or provide a declaration of ‘exit’
+src/build.c:366:3: error: unknown type name ‘LpmConfig’
+  366 |   LpmConfig cfg;
+      |   ^~~~~~~~~
+src/build.c:367:3: error: implicit declaration of function ‘lpm_config_load’ [-Wimplicit-function-declaration]
+  367 |   lpm_config_load(&cfg);
+      |   ^~~~~~~~~~~~~~~
+src/build.c:370:25: error: initialization of ‘char *’ from ‘int’ makes pointer from integer without a cast [-Wint-conversion]
+  370 |     char *rdeps       = reverse_deps(pkgs[i]);
+      |                         ^~~~~~~~~~~~
+src/build.c:371:25: error: implicit declaration of function ‘lpm_config_is_critical’ [-Wimplicit-function-declaration]
+  371 |     int   is_critical = lpm_config_is_critical(&cfg, pkgs[i]);
+      |                         ^~~~~~~~~~~~~~~~~~~~~~
+src/build.c:386:7: warning: incompatible implicit declaration of built-in function ‘snprintf’ [-Wbuiltin-declaration-mismatch]
+  386 |       snprintf(tmp, sizeof(tmp), "%s", rdeps);
+      |       ^~~~~~~~
+src/build.c:386:7: note: include ‘<stdio.h>’ or provide a declaration of ‘snprintf’
+src/build.c:387:19: error: implicit declaration of function ‘strtok’ [-Wimplicit-function-declaration]
+  387 |       char *tok = strtok(tmp, " ");
+      |                   ^~~~~~
+src/build.c:387:19: error: initialization of ‘char *’ from ‘int’ makes pointer from integer without a cast [-Wint-conversion]
+src/build.c:391:11: warning: incompatible implicit declaration of built-in function ‘strncat’ [-Wbuiltin-declaration-mismatch]
+  391 |           strncat(rdeps_display, " ", sizeof(rdeps_display)-strlen(rdeps_display)-1);
+      |           ^~~~~~~
+src/build.c:391:11: note: include ‘<string.h>’ or provide a declaration of ‘strncat’
+src/build.c:391:61: warning: incompatible implicit declaration of built-in function ‘strlen’ [-Wbuiltin-declaration-mismatch]
+  391 |           strncat(rdeps_display, " ", sizeof(rdeps_display)-strlen(rdeps_display)-1);
+      |                                                             ^~~~~~
+src/build.c:391:61: note: include ‘<string.h>’ or provide a declaration of ‘strlen’
+src/build.c:392:9: warning: incompatible implicit declaration of built-in function ‘strncat’ [-Wbuiltin-declaration-mismatch]
+  392 |         strncat(rdeps_display, tok, sizeof(rdeps_display)-strlen(rdeps_display)-1);
+      |         ^~~~~~~
+src/build.c:392:9: note: include ‘<string.h>’ or provide a declaration of ‘strncat’
+src/build.c:392:59: warning: incompatible implicit declaration of built-in function ‘strlen’ [-Wbuiltin-declaration-mismatch]
+  392 |         strncat(rdeps_display, tok, sizeof(rdeps_display)-strlen(rdeps_display)-1);
+      |                                                           ^~~~~~
+src/build.c:392:59: note: include ‘<string.h>’ or provide a declaration of ‘strlen’
+src/build.c:394:22: error: ‘NULL’ undeclared (first use in this function)
+  394 |         tok = strtok(NULL, " ");
+      |                      ^~~~
+src/build.c:1:1: note: ‘NULL’ is defined in header ‘<stddef.h>’; this is probably fixable by adding ‘#include <stddef.h>’
+  +++ |+#include <stddef.h>
+    1 | /* ensure build workspace exists, download sources */
+src/build.c:399:9: warning: incompatible implicit declaration of built-in function ‘strncat’ [-Wbuiltin-declaration-mismatch]
+  399 |         strncat(rdeps_display, more, sizeof(rdeps_display)-strlen(rdeps_display)-1);
+      |         ^~~~~~~
+src/build.c:399:9: note: include ‘<string.h>’ or provide a declaration of ‘strncat’
+src/build.c:399:60: warning: incompatible implicit declaration of built-in function ‘strlen’ [-Wbuiltin-declaration-mismatch]
+  399 |         strncat(rdeps_display, more, sizeof(rdeps_display)-strlen(rdeps_display)-1);
+      |                                                            ^~~~~~
+src/build.c:399:60: note: include ‘<string.h>’ or provide a declaration of ‘strlen’
+src/build.c:409:9: warning: incompatible implicit declaration of built-in function ‘fprintf’ [-Wbuiltin-declaration-mismatch]
+  409 |         fprintf(stderr,
+      |         ^~~~~~~
+src/build.c:409:9: note: include ‘<stdio.h>’ or provide a declaration of ‘fprintf’
+src/build.c:410:18: error: expected ‘)’ before string constant
+  410 |             C_RED "error: " C_RESET
+      |                  ^~~~~~~~~~
+      |                  )
+src/build.c:409:16: note: to match this ‘(’
+  409 |         fprintf(stderr,
+      |                ^
+src/build.c:416:9: warning: incompatible implicit declaration of built-in function ‘exit’ [-Wbuiltin-declaration-mismatch]
+  416 |         exit(1);
+      |         ^~~~
+src/build.c:416:9: note: include ‘<stdlib.h>’ or provide a declaration of ‘exit’
+src/build.c:421:7: warning: incompatible implicit declaration of built-in function ‘snprintf’ [-Wbuiltin-declaration-mismatch]
+  421 |       snprintf(upper, sizeof(upper), "%s", pkgs[i]);
+      |       ^~~~~~~~
+src/build.c:421:7: note: include ‘<stdio.h>’ or provide a declaration of ‘snprintf’
+src/build.c:425:7: warning: incompatible implicit declaration of built-in function ‘fprintf’ [-Wbuiltin-declaration-mismatch]
+  425 |       fprintf(stderr, C_RED C_BOLD
+      |       ^~~~~~~
+src/build.c:425:7: note: include ‘<stdio.h>’ or provide a declaration of ‘fprintf’
+src/build.c:425:28: error: expected ‘)’ before ‘C_BOLD’
+  425 |       fprintf(stderr, C_RED C_BOLD
+      |              ~             ^~~~~~~
+      |                            )
+src/build.c:428:9: warning: incompatible implicit declaration of built-in function ‘printf’ [-Wbuiltin-declaration-mismatch]
+  428 |         printf("REQUIRED BY: " C_YELLOW "%s" C_RESET "\n", rdeps_display);
+      |         ^~~~~~
+src/build.c:428:9: note: include ‘<stdio.h>’ or provide a declaration of ‘printf’
+src/build.c:428:31: error: expected ‘)’ before ‘C_YELLOW’
+  428 |         printf("REQUIRED BY: " C_YELLOW "%s" C_RESET "\n", rdeps_display);
+      |               ~               ^~~~~~~~~
+      |                               )
+src/build.c:429:7: warning: incompatible implicit declaration of built-in function ‘printf’ [-Wbuiltin-declaration-mismatch]
+  429 |       printf(C_RED C_BOLD
+      |       ^~~~~~
+src/build.c:429:7: note: include ‘<stdio.h>’ or provide a declaration of ‘printf’
+src/build.c:429:19: error: expected ‘)’ before ‘C_BOLD’
+  429 |       printf(C_RED C_BOLD
+      |             ~     ^~~~~~~
+      |                   )
+src/build.c:434:14: error: implicit declaration of function ‘confirm_word’ [-Wimplicit-function-declaration]
+  434 |         if (!confirm_word(
+      |              ^~~~~~~~~~~~
+src/build.c:435:24: error: expected ‘)’ before ‘C_BOLD’
+  435 |                 "Type " C_BOLD "YES" C_RESET " to continue:\n> ", "YES"))
+      |                        ^~~~~~~
+      |                        )
+src/build.c:434:26: note: to match this ‘(’
+  434 |         if (!confirm_word(
+      |                          ^
+src/build.c:436:35: warning: incompatible implicit declaration of built-in function ‘exit’ [-Wbuiltin-declaration-mismatch]
+  436 |           { printf("Aborted.\n"); exit(0); }
+      |                                   ^~~~
+src/build.c:436:35: note: include ‘<stdlib.h>’ or provide a declaration of ‘exit’
+src/build.c:438:17: error: ‘C_BOLD’ undeclared (first use in this function)
+  438 |                 C_BOLD "FINAL CONFIRMATION: REMOVE THESE PACKAGES?"
+      |                 ^~~~~~
+src/build.c:438:23: error: expected ‘)’ before string constant
+  438 |                 C_BOLD "FINAL CONFIRMATION: REMOVE THESE PACKAGES?"
+      |                       ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+      |                       )
+src/build.c:437:26: note: to match this ‘(’
+  437 |         if (!confirm_word(
+      |                          ^
+src/build.c:440:35: warning: incompatible implicit declaration of built-in function ‘exit’ [-Wbuiltin-declaration-mismatch]
+  440 |           { printf("Aborted.\n"); exit(0); }
+      |                                   ^~~~
+src/build.c:440:35: note: include ‘<stdlib.h>’ or provide a declaration of ‘exit’
+src/build.c:441:21: error: expected ‘)’ before ‘C_BOLD’
+  441 |         printf(C_RED C_BOLD "\nLAST WARNING: SYSTEM MAY BECOME UNUSABLE.\n" C_RESET);
+      |               ~     ^~~~~~~
+      |                     )
+src/build.c:443:24: error: expected ‘)’ before ‘C_BOLD’
+  443 |                 "Type " C_BOLD "DELETE" C_RESET " to proceed:\n> ", "DELETE"))
+      |                        ^~~~~~~
+      |                        )
+src/build.c:442:26: note: to match this ‘(’
+  442 |         if (!confirm_word(
+      |                          ^
+src/build.c:444:35: warning: incompatible implicit declaration of built-in function ‘exit’ [-Wbuiltin-declaration-mismatch]
+  444 |           { printf("Aborted.\n"); exit(0); }
+      |                                   ^~~~
+src/build.c:444:35: note: include ‘<stdlib.h>’ or provide a declaration of ‘exit’
+src/build.c:454:7: warning: incompatible implicit declaration of built-in function ‘printf’ [-Wbuiltin-declaration-mismatch]
+  454 |       printf(C_YELLOW "warning: " C_RESET
+      |       ^~~~~~
+src/build.c:454:7: note: include ‘<stdio.h>’ or provide a declaration of ‘printf’
+src/build.c:454:14: error: ‘C_YELLOW’ undeclared (first use in this function)
+  454 |       printf(C_YELLOW "warning: " C_RESET
+      |              ^~~~~~~~
+src/build.c:454:22: error: expected ‘)’ before string constant
+  454 |       printf(C_YELLOW "warning: " C_RESET
+      |             ~        ^~~~~~~~~~~~
+      |                      )
+src/build.c:459:34: error: expected ‘)’ before ‘C_GREEN’
+  459 |         if (!confirm("Proceed? [" C_GREEN "Yes" C_RESET "/" C_RED "No" C_RESET "] "))
+      |                     ~            ^~~~~~~~
+      |                                  )
+src/build.c:460:35: warning: incompatible implicit declaration of built-in function ‘exit’ [-Wbuiltin-declaration-mismatch]
+  460 |           { printf("Aborted.\n"); exit(0); }
+      |                                   ^~~~
+src/build.c:460:35: note: include ‘<stdlib.h>’ or provide a declaration of ‘exit’
+src/build.c:469:10: error: implicit declaration of function ‘db_is_installed’ [-Wimplicit-function-declaration]
+  469 |     if (!db_is_installed(pkgs[i])) {
+      |          ^~~~~~~~~~~~~~~
+src/build.c:470:7: warning: incompatible implicit declaration of built-in function ‘fprintf’ [-Wbuiltin-declaration-mismatch]
+  470 |       fprintf(stderr, C_RED "error: " C_RESET "target not found: %s\n",
+      |       ^~~~~~~
+src/build.c:470:7: note: include ‘<stdio.h>’ or provide a declaration of ‘fprintf’
+src/build.c:470:28: error: expected ‘)’ before string constant
+  470 |       fprintf(stderr, C_RED "error: " C_RESET "target not found: %s\n",
+      |              ~             ^~~~~~~~~~
+      |                            )
+src/build.c:476:5: warning: incompatible implicit declaration of built-in function ‘exit’ [-Wbuiltin-declaration-mismatch]
+  476 |     exit(1);
+      |     ^~~~
+src/build.c:476:5: note: include ‘<stdlib.h>’ or provide a declaration of ‘exit’
+src/build.c:481:5: warning: incompatible implicit declaration of built-in function ‘printf’ [-Wbuiltin-declaration-mismatch]
+  481 |     printf("Packages to remove (" C_BOLD "%d" C_RESET "):\n", npkgs);
+      |     ^~~~~~
+src/build.c:481:5: note: include ‘<stdio.h>’ or provide a declaration of ‘printf’
+src/build.c:481:34: error: expected ‘)’ before ‘C_BOLD’
+  481 |     printf("Packages to remove (" C_BOLD "%d" C_RESET "):\n", npkgs);
+      |           ~                      ^~~~~~~
+      |                                  )
+src/build.c:485:62: error: expected ‘)’ before ‘C_GREEN’
+  485 |     if (!confirm("Would you like to remove these packages? ["
+      |                 ~                                            ^
+      |                                                              )
+  486 |                  C_GREEN "Yes" C_RESET "/" C_RED "No" C_RESET "] ")) {
+      |                  ~~~~~~~                                      
+src/build.c:488:7: warning: incompatible implicit declaration of built-in function ‘exit’ [-Wbuiltin-declaration-mismatch]
+  488 |       exit(0);
+      |       ^~~~
+src/build.c:488:7: note: include ‘<stdlib.h>’ or provide a declaration of ‘exit’
+src/build.c:493:5: warning: incompatible implicit declaration of built-in function ‘printf’ [-Wbuiltin-declaration-mismatch]
+  493 |     printf(C_CYAN "::" C_RESET " Removing " C_BOLD "%s" C_RESET "...", pkgs[i]);
+      |     ^~~~~~
+src/build.c:493:5: note: include ‘<stdio.h>’ or provide a declaration of ‘printf’
+src/build.c:493:12: error: ‘C_CYAN’ undeclared (first use in this function)
+  493 |     printf(C_CYAN "::" C_RESET " Removing " C_BOLD "%s" C_RESET "...", pkgs[i]);
+      |            ^~~~~~
+src/build.c:493:18: error: expected ‘)’ before string constant
+  493 |     printf(C_CYAN "::" C_RESET " Removing " C_BOLD "%s" C_RESET "...", pkgs[i]);
+      |           ~      ^~~~~
+      |                  )
+src/build.c:494:5: error: implicit declaration of function ‘fflush’ [-Wimplicit-function-declaration]
+  494 |     fflush(stdout);
+      |     ^~~~~~
+src/build.c:494:12: error: ‘stdout’ undeclared (first use in this function)
+  494 |     fflush(stdout);
+      |            ^~~~~~
+src/build.c:494:12: note: ‘stdout’ is defined in header ‘<stdio.h>’; this is probably fixable by adding ‘#include <stdio.h>’
+src/build.c:497:18: error: implicit declaration of function ‘db_files_remove’ [-Wimplicit-function-declaration]
+  497 |     int nfiles = db_files_remove(pkgs[i]);
+      |                  ^~~~~~~~~~~~~~~
+src/build.c:511:5: error: implicit declaration of function ‘db_remove’; did you mean ‘cmd_remove’? [-Wimplicit-function-declaration]
+  511 |     db_remove(pkgs[i]);
+      |     ^~~~~~~~~
+      |     cmd_remove
+src/build.c:514:16: error: ‘MAX_STR’ undeclared (first use in this function)
+  514 |     char cache[MAX_STR];
+      |                ^~~~~~~
+src/build.c:515:5: warning: incompatible implicit declaration of built-in function ‘snprintf’ [-Wbuiltin-declaration-mismatch]
+  515 |     snprintf(cache, sizeof(cache), "%s/%s", LPM_BUILD_DIR, pkgs[i]);
+      |     ^~~~~~~~
+src/build.c:515:5: note: include ‘<stdio.h>’ or provide a declaration of ‘snprintf’
+src/build.c:515:45: error: ‘LPM_BUILD_DIR’ undeclared (first use in this function)
+  515 |     snprintf(cache, sizeof(cache), "%s/%s", LPM_BUILD_DIR, pkgs[i]);
+      |                                             ^~~~~~~~~~~~~
+src/build.c:520:15: error: expected ‘)’ before ‘C_GREEN’
+  520 |     printf(" " C_GREEN "done" C_RESET "\n");
+      |           ~   ^~~~~~~~
+      |               )
+src/build.c:516:10: warning: unused variable ‘rm_cmd’ [-Wunused-variable]
+  516 |     char rm_cmd[MAX_STR];
+      |          ^~~~~~
+src/build.c:514:10: warning: unused variable ‘cache’ [-Wunused-variable]
+  514 |     char cache[MAX_STR];
+      |          ^~~~~
+src/build.c: In function ‘cmd_update’:
+src/build.c:536:5: error: unknown type name ‘FILE’
+  536 |     FILE *f = fopen(LPM_DB, "r");
+      |     ^~~~
+src/build.c:536:5: note: ‘FILE’ is defined in header ‘<stdio.h>’; this is probably fixable by adding ‘#include <stdio.h>’
+src/build.c:536:21: error: ‘LPM_DB’ undeclared (first use in this function)
+  536 |     FILE *f = fopen(LPM_DB, "r");
+      |                     ^~~~~~
+src/build.c:538:7: warning: incompatible implicit declaration of built-in function ‘printf’ [-Wbuiltin-declaration-mismatch]
+  538 |       printf("No packages installed via lpm.\n");
+      |       ^~~~~~
+src/build.c:538:7: note: include ‘<stdio.h>’ or provide a declaration of ‘printf’
+src/build.c:541:15: error: ‘MAX_STR’ undeclared (first use in this function)
+  541 |     char line[MAX_STR];
+      |               ^~~~~~~
+src/build.c:542:12: error: implicit declaration of function ‘fgets’ [-Wimplicit-function-declaration]
+  542 |     while (fgets(line, sizeof(line), f) && ntargets < 256) {
+      |            ^~~~~
+src/build.c:543:12: error: implicit declaration of function ‘strcspn’ [-Wimplicit-function-declaration]
+  543 |       line[strcspn(line, "\n")] = '\0';
+      |            ^~~~~~~
+src/build.c:543:12: note: include ‘<string.h>’ or provide a declaration of ‘strcspn’
+src/build.c:543:12: warning: incompatible implicit declaration of built-in function ‘strcspn’ [-Wbuiltin-declaration-mismatch]
+src/build.c:543:12: note: include ‘<string.h>’ or provide a declaration of ‘strcspn’
+src/build.c:546:18: error: implicit declaration of function ‘strchr’ [-Wimplicit-function-declaration]
+  546 |       char *eq = strchr(line, '=');
+      |                  ^~~~~~
+src/build.c:546:18: note: include ‘<string.h>’ or provide a declaration of ‘strchr’
+src/build.c:546:18: warning: incompatible implicit declaration of built-in function ‘strchr’ [-Wbuiltin-declaration-mismatch]
+src/build.c:546:18: note: include ‘<string.h>’ or provide a declaration of ‘strchr’
+src/build.c:549:29: error: implicit declaration of function ‘strdup’ [-Wimplicit-function-declaration]
+  549 |       targets[ntargets++] = strdup(line);
+      |                             ^~~~~~
+src/build.c:549:29: warning: incompatible implicit declaration of built-in function ‘strdup’ [-Wbuiltin-declaration-mismatch]
+src/build.c:552:5: warning: incompatible implicit declaration of built-in function ‘printf’ [-Wbuiltin-declaration-mismatch]
+  552 |     printf(C_CYAN "::" C_RESET " Checking updates for " C_BOLD "%d" C_RESET
+      |     ^~~~~~
+src/build.c:552:5: note: include ‘<stdio.h>’ or provide a declaration of ‘printf’
+src/build.c:552:12: error: ‘C_CYAN’ undeclared (first use in this function)
+  552 |     printf(C_CYAN "::" C_RESET " Checking updates for " C_BOLD "%d" C_RESET
+      |            ^~~~~~
+src/build.c:552:18: error: expected ‘)’ before string constant
+  552 |     printf(C_CYAN "::" C_RESET " Checking updates for " C_BOLD "%d" C_RESET
+      |           ~      ^~~~~
+      |                  )
+src/build.c:541:10: warning: unused variable ‘line’ [-Wunused-variable]
+  541 |     char line[MAX_STR];
+      |          ^~~~
+src/build.c:565:5: warning: incompatible implicit declaration of built-in function ‘snprintf’ [-Wbuiltin-declaration-mismatch]
+  565 |     snprintf(pbfile, sizeof(pbfile), "%s/pkgbuild_%s", LPM_PKGBUILD_DIR,
+      |     ^~~~~~~~
+src/build.c:565:5: note: include ‘<stdio.h>’ or provide a declaration of ‘snprintf’
+src/build.c:565:56: error: ‘LPM_PKGBUILD_DIR’ undeclared (first use in this function)
+  565 |     snprintf(pbfile, sizeof(pbfile), "%s/pkgbuild_%s", LPM_PKGBUILD_DIR,
+      |                                                        ^~~~~~~~~~~~~~~~
+src/build.c:567:17: error: storage size of ‘st’ isn’t known
+  567 |     struct stat st;
+      |                 ^~
+src/build.c:575:7: error: unknown type name ‘LpmConfig’
+  575 |       LpmConfig ucfg;
+      |       ^~~~~~~~~
+src/build.c:577:11: error: implicit declaration of function ‘lpm_config_is_ignored’ [-Wimplicit-function-declaration]
+  577 |       if (lpm_config_is_ignored(&ucfg, targets[i])) {
+      |           ^~~~~~~~~~~~~~~~~~~~~
+src/build.c:578:9: warning: incompatible implicit declaration of built-in function ‘printf’ [-Wbuiltin-declaration-mismatch]
+  578 |         printf("  " C_BOLD "%-24s" C_RESET "  " C_CYAN "ignored" C_RESET
+      |         ^~~~~~
+src/build.c:578:9: note: include ‘<stdio.h>’ or provide a declaration of ‘printf’
+src/build.c:578:20: error: expected ‘)’ before ‘C_BOLD’
+  578 |         printf("  " C_BOLD "%-24s" C_RESET "  " C_CYAN "ignored" C_RESET
+      |               ~    ^~~~~~~
+      |                    )
+src/build.c:584:5: error: unknown type name ‘Pkg’
+  584 |     Pkg pkg;
+      |     ^~~
+src/build.c:588:52: error: request for member ‘pkgver’ in something not a structure or union
+  588 |     snprintf(pb_full, sizeof(pb_full), "%s-%s", pkg.pkgver, pkg.pkgrel);
+      |                                                    ^
+src/build.c:588:64: error: request for member ‘pkgrel’ in something not a structure or union
+  588 |     snprintf(pb_full, sizeof(pb_full), "%s-%s", pkg.pkgver, pkg.pkgrel);
+      |                                                                ^
+src/build.c:590:27: error: implicit declaration of function ‘db_get_version’ [-Wimplicit-function-declaration]
+  590 |     char *installed_ver = db_get_version(targets[i]);
+      |                           ^~~~~~~~~~~~~~
+src/build.c:590:27: error: initialization of ‘char *’ from ‘int’ makes pointer from integer without a cast [-Wint-conversion]
+src/build.c:593:7: warning: incompatible implicit declaration of built-in function ‘printf’ [-Wbuiltin-declaration-mismatch]
+  593 |       printf("  " C_BOLD "%-24s" C_RESET "  " C_YELLOW
+      |       ^~~~~~
+src/build.c:593:7: note: include ‘<stdio.h>’ or provide a declaration of ‘printf’
+src/build.c:593:18: error: expected ‘)’ before ‘C_BOLD’
+  593 |       printf("  " C_BOLD "%-24s" C_RESET "  " C_YELLOW
+      |             ~    ^~~~~~~
+      |                  )
+src/build.c:599:7: warning: incompatible implicit declaration of built-in function ‘printf’ [-Wbuiltin-declaration-mismatch]
+  599 |       printf("  " C_BOLD "%-24s" C_RESET "  " C_GREEN "up to date" C_RESET
+      |       ^~~~~~
+src/build.c:599:7: note: include ‘<stdio.h>’ or provide a declaration of ‘printf’
+src/build.c:599:18: error: expected ‘)’ before ‘C_BOLD’
+  599 |       printf("  " C_BOLD "%-24s" C_RESET "  " C_GREEN "up to date" C_RESET
+      |             ~    ^~~~~~~
+      |                  )
+src/build.c:602:7: error: implicit declaration of function ‘free’ [-Wimplicit-function-declaration]
+  602 |       free(installed_ver);
+      |       ^~~~
+src/build.c:602:7: note: include ‘<stdlib.h>’ or provide a declaration of ‘free’
+src/build.c:602:7: warning: incompatible implicit declaration of built-in function ‘free’ [-Wbuiltin-declaration-mismatch]
+src/build.c:602:7: note: include ‘<stdlib.h>’ or provide a declaration of ‘free’
+src/build.c:604:7: warning: incompatible implicit declaration of built-in function ‘printf’ [-Wbuiltin-declaration-mismatch]
+  604 |       printf("  " C_BOLD "%-24s" C_RESET "  " C_YELLOW "%s" C_RESET
+      |       ^~~~~~
+src/build.c:604:7: note: include ‘<stdio.h>’ or provide a declaration of ‘printf’
+src/build.c:604:18: error: expected ‘)’ before ‘C_BOLD’
+  604 |       printf("  " C_BOLD "%-24s" C_RESET "  " C_YELLOW "%s" C_RESET
+      |             ~    ^~~~~~~
+      |                  )
+src/build.c:608:7: warning: incompatible implicit declaration of built-in function ‘free’ [-Wbuiltin-declaration-mismatch]
+  608 |       free(installed_ver);
+      |       ^~~~
+src/build.c:608:7: note: include ‘<stdlib.h>’ or provide a declaration of ‘free’
+src/build.c:587:10: warning: unused variable ‘pb_full’ [-Wunused-variable]
+  587 |     char pb_full[MAX_STR];
+      |          ^~~~~~~
+src/build.c:567:17: warning: unused variable ‘st’ [-Wunused-variable]
+  567 |     struct stat st;
+      |                 ^~
+src/build.c:564:10: warning: unused variable ‘pbfile’ [-Wunused-variable]
+  564 |     char pbfile[MAX_STR];
+      |          ^~~~~~
+src/build.c:612:3: warning: incompatible implicit declaration of built-in function ‘printf’ [-Wbuiltin-declaration-mismatch]
+  612 |   printf("\n");
+      |   ^~~~~~
+src/build.c:612:3: note: include ‘<stdio.h>’ or provide a declaration of ‘printf’
+src/build.c:614:18: error: expected ‘)’ before string constant
+  614 |     printf(C_CYAN "::" C_RESET " " C_GREEN
+      |           ~      ^~~~~
+      |                  )
+src/build.c:619:32: error: expected ‘)’ before ‘C_BOLD’
+  619 |   printf("Packages to update (" C_BOLD "%d" C_RESET "):\n", nupdate);
+      |         ~                      ^~~~~~~
+      |                                )
+src/build.c:625:5: warning: incompatible implicit declaration of built-in function ‘exit’ [-Wbuiltin-declaration-mismatch]
+  625 |     exit(0);
+      |     ^~~~
+src/build.c:625:5: note: include ‘<stdlib.h>’ or provide a declaration of ‘exit’
+src/build.c:629:16: error: expected ‘)’ before ‘C_BOLD’
+  629 |     printf("\n" C_BOLD "==> Updating %s" C_RESET "\n", to_update[i]);
+      |           ~    ^~~~~~~
+      |                )
+src/build.c:632:5: warning: incompatible implicit declaration of built-in function ‘snprintf’ [-Wbuiltin-declaration-mismatch]
+  632 |     snprintf(cache, sizeof(cache), "%s/%s", LPM_BUILD_DIR, to_update[i]);
+      |     ^~~~~~~~
+src/build.c:632:5: note: include ‘<stdio.h>’ or provide a declaration of ‘snprintf’
+src/build.c:632:45: error: ‘LPM_BUILD_DIR’ undeclared (first use in this function)
+  632 |     snprintf(cache, sizeof(cache), "%s/%s", LPM_BUILD_DIR, to_update[i]);
+      |                                             ^~~~~~~~~~~~~
+src/build.c:639:5: error: implicit declaration of function ‘cmd_sync’ [-Wimplicit-function-declaration]
+  639 |     cmd_sync(1, pair);
+      |     ^~~~~~~~
+src/build.c:633:10: warning: unused variable ‘rm_cmd’ [-Wunused-variable]
+  633 |     char rm_cmd[MAX_STR];
+      |          ^~~~~~
+src/build.c:631:10: warning: unused variable ‘cache’ [-Wunused-variable]
+  631 |     char cache[MAX_STR];
+      |          ^~~~~
+src/build.c:643:14: error: expected ‘)’ before ‘C_CYAN’
+  643 |   printf("\n" C_CYAN "::" C_RESET " " C_GREEN "Update complete." C_RESET "\n");
+      |         ~    ^~~~~~~
+      |              )
+src/build.c: At top level:
+src/build.c:647:6: warning: conflicting types for ‘cmd_sync’; have ‘void(int,  char **)’
+  647 | void cmd_sync(int argc, char **argv) {
+      |      ^~~~~~~~
+src/build.c:639:5: note: previous implicit declaration of ‘cmd_sync’ with type ‘void(int,  char **)’
+  639 |     cmd_sync(1, pair);
+      |     ^~~~~~~~
+src/build.c: In function ‘cmd_sync’:
+src/build.c:651:3: error: unknown type name ‘LpmFlags’
+  651 |   LpmFlags flags;
+      |   ^~~~~~~~
+src/build.c:654:11: error: implicit declaration of function ‘lpm_parse_flags’ [-Wimplicit-function-declaration]
+  654 |   npkgs = lpm_parse_flags(argc, argv, &flags, pkgs, 256);
+      |           ^~~~~~~~~~~~~~~
+src/build.c:665:15: error: ‘MAX_STR’ undeclared (first use in this function)
+  665 |     char dest[MAX_STR];
+      |               ^~~~~~~
+src/build.c:666:5: warning: incompatible implicit declaration of built-in function ‘snprintf’ [-Wbuiltin-declaration-mismatch]
+  666 |     snprintf(dest, sizeof(dest), "%s/pkgbuild_%s", LPM_PKGBUILD_DIR, pkgs[i]);
+      |     ^~~~~~~~
+src/build.c:666:5: note: include ‘<stdio.h>’ or provide a declaration of ‘snprintf’
+src/build.c:666:52: error: ‘LPM_PKGBUILD_DIR’ undeclared (first use in this function)
+  666 |     snprintf(dest, sizeof(dest), "%s/pkgbuild_%s", LPM_PKGBUILD_DIR, pkgs[i]);
+      |                                                    ^~~~~~~~~~~~~~~~
+src/build.c:668:5: warning: incompatible implicit declaration of built-in function ‘printf’ [-Wbuiltin-declaration-mismatch]
+  668 |     printf(C_CYAN "::" C_RESET " Fetching pkgbuild_%s...\n", pkgs[i]);
+      |     ^~~~~~
+src/build.c:668:5: note: include ‘<stdio.h>’ or provide a declaration of ‘printf’
+src/build.c:668:12: error: ‘C_CYAN’ undeclared (first use in this function)
+  668 |     printf(C_CYAN "::" C_RESET " Fetching pkgbuild_%s...\n", pkgs[i]);
+      |            ^~~~~~
+src/build.c:668:18: error: expected ‘)’ before string constant
+  668 |     printf(C_CYAN "::" C_RESET " Fetching pkgbuild_%s...\n", pkgs[i]);
+      |           ~      ^~~~~
+      |                  )
+src/build.c:683:19: error: storage size of ‘st’ isn’t known
+  683 |       struct stat st;
+      |                   ^~
+src/build.c:685:16: error: ‘C_GREEN’ undeclared (first use in this function)
+  685 |         printf(C_GREEN "  ->" C_RESET " Found in " C_CYAN "[%s]" C_RESET
+      |                ^~~~~~~
+src/build.c:685:23: error: expected ‘)’ before string constant
+  685 |         printf(C_GREEN "  ->" C_RESET " Found in " C_CYAN "[%s]" C_RESET
+      |               ~       ^~~~~~~
+      |                       )
+src/build.c:693:7: error: implicit declaration of function ‘remove’; did you mean ‘cmd_remove’? [-Wimplicit-function-declaration]
+  693 |       remove(dest);
+      |       ^~~~~~
+      |       cmd_remove
+src/build.c:683:19: warning: unused variable ‘st’ [-Wunused-variable]
+  683 |       struct stat st;
+      |                   ^~
+src/build.c:665:10: warning: unused variable ‘dest’ [-Wunused-variable]
+  665 |     char dest[MAX_STR];
+      |          ^~~~
+src/build.c:708:16: error: implicit declaration of function ‘dep_resolve_queue’ [-Wimplicit-function-declaration]
+  708 |     int nsub = dep_resolve_queue(pkgs[i], subq, 256);
+      |                ^~~~~~~~~~~~~~~~~
+src/build.c:717:9: error: implicit declaration of function ‘strncpy’ [-Wimplicit-function-declaration]
+  717 |         strncpy(queue[nqueue++], subq[j], MAX_STR - 1);
+      |         ^~~~~~~
+src/build.c:717:9: note: include ‘<string.h>’ or provide a declaration of ‘strncpy’
+src/build.c:717:9: warning: incompatible implicit declaration of built-in function ‘strncpy’ [-Wbuiltin-declaration-mismatch]
+src/build.c:717:9: note: include ‘<string.h>’ or provide a declaration of ‘strncpy’
+src/build.c:726:7: warning: incompatible implicit declaration of built-in function ‘strncpy’ [-Wbuiltin-declaration-mismatch]
+  726 |       strncpy(queue[nqueue++], pkgs[i], MAX_STR - 1);
+      |       ^~~~~~~
+src/build.c:726:7: note: include ‘<string.h>’ or provide a declaration of ‘strncpy’
+src/build.c:707:10: warning: unused variable ‘subq’ [-Wunused-variable]
+  707 |     char subq[256][MAX_STR];
+      |          ^~~~
+src/build.c:730:3: error: implicit declaration of function ‘cmd_deptree’ [-Wimplicit-function-declaration]
+  730 |   cmd_deptree(npkgs, pkgs);
+      |   ^~~~~~~~~~~
+src/build.c:733:5: warning: incompatible implicit declaration of built-in function ‘printf’ [-Wbuiltin-declaration-mismatch]
+  733 |     printf(C_CYAN "::" C_RESET " Will build " C_BOLD "%d" C_RESET
+      |     ^~~~~~
+src/build.c:733:5: note: include ‘<stdio.h>’ or provide a declaration of ‘printf’
+src/build.c:733:18: error: expected ‘)’ before string constant
+  733 |     printf(C_CYAN "::" C_RESET " Will build " C_BOLD "%d" C_RESET
+      |           ~      ^~~~~
+      |                  )
+src/build.c:737:20: error: expected ‘)’ before ‘C_CYAN’
+  737 |       printf("    " C_CYAN "%d." C_RESET " %s\n", i + 1, queue[i]);
+      |             ~      ^~~~~~~
+      |                    )
+src/build.c:741:13: error: request for member ‘yes’ in something not a structure or union
+  741 |   if (!flags.yes) {
+      |             ^
+src/build.c:742:63: error: expected ‘)’ before ‘C_GREEN’
+  742 |     if (!confirm("\nWould you like to build these packages? [" C_GREEN
+      |                 ~                                             ^~~~~~~~
+      |                                                               )
+src/build.c:744:7: warning: incompatible implicit declaration of built-in function ‘printf’ [-Wbuiltin-declaration-mismatch]
+  744 |       printf("Aborted.\n");
+      |       ^~~~~~
+src/build.c:744:7: note: include ‘<stdio.h>’ or provide a declaration of ‘printf’
+src/build.c:745:7: warning: incompatible implicit declaration of built-in function ‘exit’ [-Wbuiltin-declaration-mismatch]
+  745 |       exit(0);
+      |       ^~~~
+src/build.c:745:7: note: include ‘<stdlib.h>’ or provide a declaration of ‘exit’
+src/build.c:754:5: warning: incompatible implicit declaration of built-in function ‘snprintf’ [-Wbuiltin-declaration-mismatch]
+  754 |     snprintf(pbfile_check, sizeof(pbfile_check), "%s/pkgbuild_%s",
+      |     ^~~~~~~~
+src/build.c:754:5: note: include ‘<stdio.h>’ or provide a declaration of ‘snprintf’
+src/build.c:756:17: error: storage size of ‘st_check’ isn’t known
+  756 |     struct stat st_check;
+      |                 ^~~~~~~~
+src/build.c:758:7: warning: incompatible implicit declaration of built-in function ‘printf’ [-Wbuiltin-declaration-mismatch]
+  758 |       printf(C_CYAN "  ->" C_RESET " Fetching pkgbuild_%s...\n", queue[qi]);
+      |       ^~~~~~
+src/build.c:758:7: note: include ‘<stdio.h>’ or provide a declaration of ‘printf’
+src/build.c:758:20: error: expected ‘)’ before string constant
+  758 |       printf(C_CYAN "  ->" C_RESET " Fetching pkgbuild_%s...\n", queue[qi]);
+      |             ~      ^~~~~~~
+      |                    )
+src/build.c:760:7: warning: incompatible implicit declaration of built-in function ‘strncpy’ [-Wbuiltin-declaration-mismatch]
+  760 |       strncpy(fetch_argv_buf, queue[qi], MAX_STR - 1);
+      |       ^~~~~~~
+src/build.c:760:7: note: include ‘<string.h>’ or provide a declaration of ‘strncpy’
+src/build.c:762:7: error: implicit declaration of function ‘cmd_fetch’ [-Wimplicit-function-declaration]
+  762 |       cmd_fetch(1, fetch_argv);
+      |       ^~~~~~~~~
+src/build.c:759:12: warning: unused variable ‘fetch_argv_buf’ [-Wunused-variable]
+  759 |       char fetch_argv_buf[MAX_STR];
+      |            ^~~~~~~~~~~~~~
+src/build.c:756:17: warning: unused variable ‘st_check’ [-Wunused-variable]
+  756 |     struct stat st_check;
+      |                 ^~~~~~~~
+src/build.c:753:10: warning: unused variable ‘pbfile_check’ [-Wunused-variable]
+  753 |     char pbfile_check[MAX_STR];
+      |          ^~~~~~~~~~~~
+src/build.c:769:5: warning: incompatible implicit declaration of built-in function ‘snprintf’ [-Wbuiltin-declaration-mismatch]
+  769 |     snprintf(pbfile, sizeof(pbfile), "%s/pkgbuild_%s", LPM_PKGBUILD_DIR,
+      |     ^~~~~~~~
+src/build.c:769:5: note: include ‘<stdio.h>’ or provide a declaration of ‘snprintf’
+src/build.c:772:5: error: unknown type name ‘Pkg’
+  772 |     Pkg pkg;
+      |     ^~~
+src/build.c:779:7: warning: incompatible implicit declaration of built-in function ‘printf’ [-Wbuiltin-declaration-mismatch]
+  779 |       printf(C_CYAN "  ->" C_RESET " %s already installed, skipping\n",
+      |       ^~~~~~
+src/build.c:779:7: note: include ‘<stdio.h>’ or provide a declaration of ‘printf’
+src/build.c:779:20: error: expected ‘)’ before string constant
+  779 |       printf(C_CYAN "  ->" C_RESET " %s already installed, skipping\n",
+      |             ~      ^~~~~~~
+      |                    )
+src/build.c:786:5: error: implicit declaration of function ‘pkg_log_path’ [-Wimplicit-function-declaration]
+  786 |     pkg_log_path(pkg.pkgname, pkg_log, sizeof(pkg_log));
+      |     ^~~~~~~~~~~~
+src/build.c:786:21: error: request for member ‘pkgname’ in something not a structure or union
+  786 |     pkg_log_path(pkg.pkgname, pkg_log, sizeof(pkg_log));
+      |                     ^
+src/build.c:788:9: error: implicit declaration of function ‘prepare_workspace’ [-Wimplicit-function-declaration]
+  788 |     if (prepare_workspace(&pkg) != 0)
+      |         ^~~~~~~~~~~~~~~~~
+src/build.c:792:39: error: ‘LPM_BUILD_DIR’ undeclared (first use in this function)
+  792 |     snprintf(ws, sizeof(ws), "%s/%s", LPM_BUILD_DIR, pkg.pkgname);
+      |                                       ^~~~~~~~~~~~~
+src/build.c:792:57: error: request for member ‘pkgname’ in something not a structure or union
+  792 |     snprintf(ws, sizeof(ws), "%s/%s", LPM_BUILD_DIR, pkg.pkgname);
+      |                                                         ^
+src/build.c:795:12: error: request for member ‘sha256sums’ in something not a structure or union
+  795 |     if (pkg.sha256sums[0][0] || pkg.md5sums[0][0]) {
+      |            ^
+src/build.c:795:36: error: request for member ‘md5sums’ in something not a structure or union
+  795 |     if (pkg.sha256sums[0][0] || pkg.md5sums[0][0]) {
+      |                                    ^
+src/build.c:796:7: warning: incompatible implicit declaration of built-in function ‘printf’ [-Wbuiltin-declaration-mismatch]
+  796 |       printf(C_CYAN "::" C_RESET " Verifying checksums...\n");
+      |       ^~~~~~
+src/build.c:796:7: note: include ‘<stdio.h>’ or provide a declaration of ‘printf’
+src/build.c:796:20: error: expected ‘)’ before string constant
+  796 |       printf(C_CYAN "::" C_RESET " Verifying checksums...\n");
+      |             ~      ^~~~~
+      |                    )
+src/build.c:797:12: error: implicit declaration of function ‘verify_sources’ [-Wimplicit-function-declaration]
+  797 |       if (!verify_sources(&pkg, ws)) {
+      |            ^~~~~~~~~~~~~~
+src/build.c:804:5: warning: incompatible implicit declaration of built-in function ‘printf’ [-Wbuiltin-declaration-mismatch]
+  804 |     printf(C_BOLD "==> Building %s %s-%s" C_RESET "\n", pkg.pkgname, pkg.pkgver,
+      |     ^~~~~~
+src/build.c:804:5: note: include ‘<stdio.h>’ or provide a declaration of ‘printf’
+src/build.c:804:12: error: ‘C_BOLD’ undeclared (first use in this function)
+  804 |     printf(C_BOLD "==> Building %s %s-%s" C_RESET "\n", pkg.pkgname, pkg.pkgver,
+      |            ^~~~~~
+src/build.c:804:18: error: expected ‘)’ before string constant
+  804 |     printf(C_BOLD "==> Building %s %s-%s" C_RESET "\n", pkg.pkgname, pkg.pkgver,
+      |           ~      ^~~~~~~~~~~~~~~~~~~~~~~~
+      |                  )
+src/build.c:806:37: error: request for member ‘pkgname’ in something not a structure or union
+  806 |     lpm_log("Building %s %s-%s", pkg.pkgname, pkg.pkgver, pkg.pkgrel);
+      |                                     ^
+src/build.c:806:50: error: request for member ‘pkgver’ in something not a structure or union
+  806 |     lpm_log("Building %s %s-%s", pkg.pkgname, pkg.pkgver, pkg.pkgrel);
+      |                                                  ^
+src/build.c:806:62: error: request for member ‘pkgrel’ in something not a structure or union
+  806 |     lpm_log("Building %s %s-%s", pkg.pkgname, pkg.pkgver, pkg.pkgrel);
+      |                                                              ^
+src/build.c:814:7: warning: incompatible implicit declaration of built-in function ‘fprintf’ [-Wbuiltin-declaration-mismatch]
+  814 |       fprintf(stderr,
+      |       ^~~~~~~
+src/build.c:814:7: note: include ‘<stdio.h>’ or provide a declaration of ‘fprintf’
+src/build.c:814:15: error: ‘stderr’ undeclared (first use in this function)
+  814 |       fprintf(stderr,
+      |               ^~~~~~
+src/build.c:814:15: note: ‘stderr’ is defined in header ‘<stdio.h>’; this is probably fixable by adding ‘#include <stdio.h>’
+src/build.c:815:15: error: ‘C_RED’ undeclared (first use in this function)
+  815 |               C_RED "error: " C_RESET "Build failed for %s\n"
+      |               ^~~~~
+src/build.c:815:20: error: expected ‘)’ before string constant
+  815 |               C_RED "error: " C_RESET "Build failed for %s\n"
+      |                    ^~~~~~~~~~
+      |                    )
+src/build.c:814:14: note: to match this ‘(’
+  814 |       fprintf(stderr,
+      |              ^
+src/build.c:819:7: warning: incompatible implicit declaration of built-in function ‘exit’ [-Wbuiltin-declaration-mismatch]
+  819 |       exit(1);
+      |       ^~~~
+src/build.c:819:7: note: include ‘<stdlib.h>’ or provide a declaration of ‘exit’
+src/build.c:823:12: error: request for member ‘has_check’ in something not a structure or union
+  823 |     if (pkg.has_check) {
+      |            ^
+src/build.c:827:28: error: request for member ‘yes’ in something not a structure or union
+  827 |       int run_check = flags.yes;
+      |                            ^
+src/build.c:831:39: error: expected ‘)’ before ‘C_BOLD’
+  831 |                  "Run test suite for " C_BOLD "%s" C_RESET "? [" C_GREEN
+      |                                       ^~~~~~~
+      |                                       )
+src/build.c:830:17: note: to match this ‘(’
+  830 |         snprintf(prompt, sizeof(prompt),
+      |                 ^
+src/build.c:829:14: warning: unused variable ‘prompt’ [-Wunused-variable]
+  829 |         char prompt[MAX_STR];
+      |              ^~~~~~
+src/build.c:838:22: error: expected ‘)’ before string constant
+  838 |         printf(C_CYAN "::" C_RESET " Running check()...\n");
+      |               ~      ^~~~~
+      |                      )
+src/build.c:851:20: error: request for member ‘strict’ in something not a structure or union
+  851 |           if (flags.strict) {
+      |                    ^
+src/build.c:852:13: warning: incompatible implicit declaration of built-in function ‘fprintf’ [-Wbuiltin-declaration-mismatch]
+  852 |             fprintf(stderr,
+      |             ^~~~~~~
+src/build.c:852:13: note: include ‘<stdio.h>’ or provide a declaration of ‘fprintf’
+src/build.c:853:26: error: expected ‘)’ before string constant
+  853 |                     C_RED "error: " C_RESET
+      |                          ^~~~~~~~~~
+      |                          )
+src/build.c:852:20: note: to match this ‘(’
+  852 |             fprintf(stderr,
+      |                    ^
+src/build.c:858:13: warning: incompatible implicit declaration of built-in function ‘exit’ [-Wbuiltin-declaration-mismatch]
+  858 |             exit(1);
+      |             ^~~~
+src/build.c:858:13: note: include ‘<stdlib.h>’ or provide a declaration of ‘exit’
+src/build.c:860:18: error: ‘C_YELLOW’ undeclared (first use in this function)
+  860 |           printf(C_YELLOW "warning: " C_RESET
+      |                  ^~~~~~~~
+src/build.c:860:26: error: expected ‘)’ before string constant
+  860 |           printf(C_YELLOW "warning: " C_RESET
+      |                 ~        ^~~~~~~~~~~~
+      |                          )
+src/build.c:865:21: error: request for member ‘yes’ in something not a structure or union
+  865 |           if (!flags.yes) {
+      |                     ^
+src/build.c:866:57: error: expected ‘)’ before ‘C_GREEN’
+  866 |             if (!confirm("Continue to install anyway? [" C_GREEN "Yes" C_RESET
+      |                         ~                               ^~~~~~~~
+      |                                                         )
+src/build.c:868:15: warning: incompatible implicit declaration of built-in function ‘exit’ [-Wbuiltin-declaration-mismatch]
+  868 |               exit(1);
+      |               ^~~~
+src/build.c:868:15: note: include ‘<stdlib.h>’ or provide a declaration of ‘exit’
+src/build.c:871:25: error: expected ‘)’ before string constant
+  871 |           printf(C_GREEN "  check() passed" C_RESET "\n");
+      |                 ~       ^~~~~~~~~~~~~~~~~~~
+      |                         )
+src/build.c:846:14: warning: unused variable ‘tail_cmd’ [-Wunused-variable]
+  846 |         char tail_cmd[MAX_STR];
+      |              ^~~~~~~~
+src/build.c:824:12: warning: unused variable ‘check_log’ [-Wunused-variable]
+  824 |       char check_log[MAX_STR];
+      |            ^~~~~~~~~
+src/build.c:884:18: error: expected ‘)’ before string constant
+  884 |     printf(C_BOLD "==> Installing %s" C_RESET "\n", queue[qi]);
+      |           ~      ^~~~~~~~~~~~~~~~~~~~
+      |                  )
+src/build.c:894:7: warning: incompatible implicit declaration of built-in function ‘fprintf’ [-Wbuiltin-declaration-mismatch]
+  894 |       fprintf(stderr,
+      |       ^~~~~~~
+src/build.c:894:7: note: include ‘<stdio.h>’ or provide a declaration of ‘fprintf’
+src/build.c:895:20: error: expected ‘)’ before string constant
+  895 |               C_RED "error: " C_RESET "Install failed for %s\n"
+      |                    ^~~~~~~~~~
+      |                    )
+src/build.c:894:14: note: to match this ‘(’
+  894 |       fprintf(stderr,
+      |              ^
+src/build.c:899:7: warning: incompatible implicit declaration of built-in function ‘exit’ [-Wbuiltin-declaration-mismatch]
+  899 |       exit(1);
+      |       ^~~~
+src/build.c:899:7: note: include ‘<stdlib.h>’ or provide a declaration of ‘exit’
+src/build.c:903:18: error: expected ‘)’ before string constant
+  903 |     printf(C_CYAN "  ->" C_RESET " Merging into /...\n");
+      |           ~      ^~~~~~~
+      |                  )
+src/build.c:908:7: warning: incompatible implicit declaration of built-in function ‘fprintf’ [-Wbuiltin-declaration-mismatch]
+  908 |       fprintf(stderr, C_RED "error: " C_RESET "Merge failed for %s\n",
+      |       ^~~~~~~
+src/build.c:908:7: note: include ‘<stdio.h>’ or provide a declaration of ‘fprintf’
+src/build.c:908:28: error: expected ‘)’ before string constant
+  908 |       fprintf(stderr, C_RED "error: " C_RESET "Merge failed for %s\n",
+      |              ~             ^~~~~~~~~~
+      |                            )
+src/build.c:910:7: warning: incompatible implicit declaration of built-in function ‘exit’ [-Wbuiltin-declaration-mismatch]
+  910 |       exit(1);
+      |       ^~~~
+src/build.c:910:7: note: include ‘<stdlib.h>’ or provide a declaration of ‘exit’
+src/build.c:914:5: error: implicit declaration of function ‘db_files_save’ [-Wimplicit-function-declaration]
+  914 |     db_files_save(pkg.pkgname, pkgdir);
+      |     ^~~~~~~~~~~~~
+src/build.c:914:22: error: request for member ‘pkgname’ in something not a structure or union
+  914 |     db_files_save(pkg.pkgname, pkgdir);
+      |                      ^
+src/build.c:916:5: error: implicit declaration of function ‘db_add’ [-Wimplicit-function-declaration]
+  916 |     db_add(pkg.pkgname, pkg.pkgver, pkg.pkgrel);
+      |     ^~~~~~
+src/build.c:916:15: error: request for member ‘pkgname’ in something not a structure or union
+  916 |     db_add(pkg.pkgname, pkg.pkgver, pkg.pkgrel);
+      |               ^
+src/build.c:916:28: error: request for member ‘pkgver’ in something not a structure or union
+  916 |     db_add(pkg.pkgname, pkg.pkgver, pkg.pkgrel);
+      |                            ^
+src/build.c:916:40: error: request for member ‘pkgrel’ in something not a structure or union
+  916 |     db_add(pkg.pkgname, pkg.pkgver, pkg.pkgrel);
+      |                                        ^
+src/build.c:917:19: error: expected ‘)’ before string constant
+  917 |     printf(C_GREEN "==> Installed %s %s-%s" C_RESET "\n", pkg.pkgname,
+      |           ~       ^~~~~~~~~~~~~~~~~~~~~~~~~
+      |                   )
+src/build.c:919:38: error: request for member ‘pkgname’ in something not a structure or union
+  919 |     lpm_log("Installed %s %s-%s", pkg.pkgname, pkg.pkgver, pkg.pkgrel);
+      |                                      ^
+src/build.c:919:51: error: request for member ‘pkgver’ in something not a structure or union
+  919 |     lpm_log("Installed %s %s-%s", pkg.pkgname, pkg.pkgver, pkg.pkgrel);
+      |                                                   ^
+src/build.c:919:63: error: request for member ‘pkgrel’ in something not a structure or union
+  919 |     lpm_log("Installed %s %s-%s", pkg.pkgname, pkg.pkgver, pkg.pkgrel);
+      |                                                               ^
+src/build.c:904:10: warning: unused variable ‘merge_cmd’ [-Wunused-variable]
+  904 |     char merge_cmd[MAX_STR];
+      |          ^~~~~~~~~
+src/build.c:879:10: warning: unused variable ‘mk_cmd’ [-Wunused-variable]
+  879 |     char mk_cmd[MAX_STR];
+      |          ^~~~~~
+src/build.c:877:10: warning: unused variable ‘pkgdir’ [-Wunused-variable]
+  877 |     char pkgdir[MAX_STR];
+      |          ^~~~~~
+src/build.c:791:10: warning: unused variable ‘ws’ [-Wunused-variable]
+  791 |     char ws[MAX_STR];
+      |          ^~
+src/build.c:785:10: warning: unused variable ‘pkg_log’ [-Wunused-variable]
+  785 |     char pkg_log[MAX_STR];
+      |          ^~~~~~~
+src/build.c:768:10: warning: unused variable ‘pbfile’ [-Wunused-variable]
+  768 |     char pbfile[MAX_STR];
+      |          ^~~~~~
+src/build.c:704:8: warning: unused variable ‘queue’ [-Wunused-variable]
+  704 |   char queue[256][MAX_STR];
+      |        ^~~~~
+src/build.c: At top level:
+src/build.c:930:6: warning: conflicting types for ‘cmd_fetch’; have ‘void(int,  char **)’
+  930 | void cmd_fetch(int argc, char **argv) {
+      |      ^~~~~~~~~
+src/build.c:762:7: note: previous implicit declaration of ‘cmd_fetch’ with type ‘void(int,  char **)’
+  762 |       cmd_fetch(1, fetch_argv);
+      |       ^~~~~~~~~
+src/build.c: In function ‘cmd_fetch’:
+src/build.c:943:15: error: ‘MAX_STR’ undeclared (first use in this function)
+  943 |     char dest[MAX_STR];
+      |               ^~~~~~~
+src/build.c:944:5: warning: incompatible implicit declaration of built-in function ‘snprintf’ [-Wbuiltin-declaration-mismatch]
+  944 |     snprintf(dest, sizeof(dest), "%s/pkgbuild_%s", LPM_PKGBUILD_DIR, argv[i]);
+      |     ^~~~~~~~
+src/build.c:944:5: note: include ‘<stdio.h>’ or provide a declaration of ‘snprintf’
+src/build.c:944:52: error: ‘LPM_PKGBUILD_DIR’ undeclared (first use in this function)
+  944 |     snprintf(dest, sizeof(dest), "%s/pkgbuild_%s", LPM_PKGBUILD_DIR, argv[i]);
+      |                                                    ^~~~~~~~~~~~~~~~
+src/build.c:946:5: warning: incompatible implicit declaration of built-in function ‘printf’ [-Wbuiltin-declaration-mismatch]
+  946 |     printf(C_CYAN "::" C_RESET " Fetching pkgbuild_%s...\n", argv[i]);
+      |     ^~~~~~
+src/build.c:946:5: note: include ‘<stdio.h>’ or provide a declaration of ‘printf’
+src/build.c:946:12: error: ‘C_CYAN’ undeclared (first use in this function)
+  946 |     printf(C_CYAN "::" C_RESET " Fetching pkgbuild_%s...\n", argv[i]);
+      |            ^~~~~~
+src/build.c:946:18: error: expected ‘)’ before string constant
+  946 |     printf(C_CYAN "::" C_RESET " Fetching pkgbuild_%s...\n", argv[i]);
+      |           ~      ^~~~~
+      |                  )
+src/build.c:960:19: error: storage size of ‘st’ isn’t known
+  960 |       struct stat st;
+      |                   ^~
+src/build.c:962:16: error: ‘C_GREEN’ undeclared (first use in this function)
+  962 |         printf(C_GREEN "  ->" C_RESET " [%s/] " C_BOLD "%s" C_RESET "\n",
+      |                ^~~~~~~
+src/build.c:962:23: error: expected ‘)’ before string constant
+  962 |         printf(C_GREEN "  ->" C_RESET " [%s/] " C_BOLD "%s" C_RESET "\n",
+      |               ~       ^~~~~~~
+      |                       )
+src/build.c:960:19: warning: unused variable ‘st’ [-Wunused-variable]
+  960 |       struct stat st;
+      |                   ^~
+src/build.c:973:7: warning: incompatible implicit declaration of built-in function ‘fprintf’ [-Wbuiltin-declaration-mismatch]
+  973 |       fprintf(stderr,
+      |       ^~~~~~~
+src/build.c:973:7: note: include ‘<stdio.h>’ or provide a declaration of ‘fprintf’
+src/build.c:973:15: error: ‘stderr’ undeclared (first use in this function)
+  973 |       fprintf(stderr,
+      |               ^~~~~~
+src/build.c:973:15: note: ‘stderr’ is defined in header ‘<stdio.h>’; this is probably fixable by adding ‘#include <stdio.h>’
+src/build.c:974:15: error: ‘C_RED’ undeclared (first use in this function)
+  974 |               C_RED "error: " C_RESET
+      |               ^~~~~
+src/build.c:974:20: error: expected ‘)’ before string constant
+  974 |               C_RED "error: " C_RESET
+      |                    ^~~~~~~~~~
+      |                    )
+src/build.c:973:14: note: to match this ‘(’
+  973 |       fprintf(stderr,
+      |              ^
+src/build.c:943:10: warning: unused variable ‘dest’ [-Wunused-variable]
+  943 |     char dest[MAX_STR];
+      |          ^~~~
+src/build.c:979:3: warning: incompatible implicit declaration of built-in function ‘printf’ [-Wbuiltin-declaration-mismatch]
+  979 |   printf(C_CYAN "::" C_RESET " PKGBUILDs saved to " C_BOLD "%s" C_RESET "\n"
+      |   ^~~~~~
+src/build.c:979:3: note: include ‘<stdio.h>’ or provide a declaration of ‘printf’
+src/build.c:979:16: error: expected ‘)’ before string constant
+  979 |   printf(C_CYAN "::" C_RESET " PKGBUILDs saved to " C_BOLD "%s" C_RESET "\n"
+      |         ~      ^~~~~
+      |                )
+src/build.c: In function ‘cmd_local’:
+src/build.c:997:3: error: unknown type name ‘LpmFlags’
+  997 |   LpmFlags flags;
+      |   ^~~~~~~~
+src/build.c:1006:17: error: ‘MAX_STR’ undeclared (first use in this function)
+ 1006 |     char pbfile[MAX_STR];
+      |                 ^~~~~~~
+src/build.c:1007:5: warning: incompatible implicit declaration of built-in function ‘snprintf’ [-Wbuiltin-declaration-mismatch]
+ 1007 |     snprintf(pbfile, sizeof(pbfile), "%s/pkgbuild_%s", LPM_PKGBUILD_DIR,
+      |     ^~~~~~~~
+src/build.c:1007:5: note: include ‘<stdio.h>’ or provide a declaration of ‘snprintf’
+src/build.c:1007:56: error: ‘LPM_PKGBUILD_DIR’ undeclared (first use in this function)
+ 1007 |     snprintf(pbfile, sizeof(pbfile), "%s/pkgbuild_%s", LPM_PKGBUILD_DIR,
+      |                                                        ^~~~~~~~~~~~~~~~
+src/build.c:1009:17: error: storage size of ‘st’ isn’t known
+ 1009 |     struct stat st;
+      |                 ^~
+src/build.c:1009:17: warning: unused variable ‘st’ [-Wunused-variable]
+src/build.c:1006:10: warning: unused variable ‘pbfile’ [-Wunused-variable]
+ 1006 |     char pbfile[MAX_STR];
+      |          ^~~~~~
+src/build.c:1031:9: warning: incompatible implicit declaration of built-in function ‘strncpy’ [-Wbuiltin-declaration-mismatch]
+ 1031 |         strncpy(queue[nqueue++], subq[j], MAX_STR - 1);
+      |         ^~~~~~~
+src/build.c:1031:9: note: include ‘<string.h>’ or provide a declaration of ‘strncpy’
+src/build.c:1040:7: warning: incompatible implicit declaration of built-in function ‘strncpy’ [-Wbuiltin-declaration-mismatch]
+ 1040 |       strncpy(queue[nqueue++], pkgs[i], MAX_STR - 1);
+      |       ^~~~~~~
+src/build.c:1040:7: note: include ‘<string.h>’ or provide a declaration of ‘strncpy’
+src/build.c:1021:10: warning: unused variable ‘subq’ [-Wunused-variable]
+ 1021 |     char subq[256][MAX_STR];
+      |          ^~~~
+src/build.c:1047:5: warning: incompatible implicit declaration of built-in function ‘printf’ [-Wbuiltin-declaration-mismatch]
+ 1047 |     printf(C_CYAN "::" C_RESET " Will build " C_BOLD "%d" C_RESET
+      |     ^~~~~~
+src/build.c:1047:5: note: include ‘<stdio.h>’ or provide a declaration of ‘printf’
+src/build.c:1047:12: error: ‘C_CYAN’ undeclared (first use in this function)
+ 1047 |     printf(C_CYAN "::" C_RESET " Will build " C_BOLD "%d" C_RESET
+      |            ^~~~~~
+src/build.c:1047:18: error: expected ‘)’ before string constant
+ 1047 |     printf(C_CYAN "::" C_RESET " Will build " C_BOLD "%d" C_RESET
+      |           ~      ^~~~~
+      |                  )
+src/build.c:1051:20: error: expected ‘)’ before ‘C_CYAN’
+ 1051 |       printf("    " C_CYAN "%d." C_RESET " %s\n", i + 1, queue[i]);
+      |             ~      ^~~~~~~
+      |                    )
+src/build.c:1055:13: error: request for member ‘yes’ in something not a structure or union
+ 1055 |   if (!flags.yes) {
+      |             ^
+src/build.c:1056:63: error: expected ‘)’ before ‘C_GREEN’
+ 1056 |     if (!confirm("\nWould you like to build these packages? [" C_GREEN
+      |                 ~                                             ^~~~~~~~
+      |                                                               )
+src/build.c:1058:7: warning: incompatible implicit declaration of built-in function ‘printf’ [-Wbuiltin-declaration-mismatch]
+ 1058 |       printf("Aborted.\n");
+      |       ^~~~~~
+src/build.c:1058:7: note: include ‘<stdio.h>’ or provide a declaration of ‘printf’
+src/build.c:1059:7: warning: incompatible implicit declaration of built-in function ‘exit’ [-Wbuiltin-declaration-mismatch]
+ 1059 |       exit(0);
+      |       ^~~~
+src/build.c:1059:7: note: include ‘<stdlib.h>’ or provide a declaration of ‘exit’
+src/build.c:1066:5: warning: incompatible implicit declaration of built-in function ‘snprintf’ [-Wbuiltin-declaration-mismatch]
+ 1066 |     snprintf(pbfile, sizeof(pbfile), "%s/pkgbuild_%s", LPM_PKGBUILD_DIR,
+      |     ^~~~~~~~
+src/build.c:1066:5: note: include ‘<stdio.h>’ or provide a declaration of ‘snprintf’
+src/build.c:1069:5: error: unknown type name ‘Pkg’
+ 1069 |     Pkg pkg;
+      |     ^~~
+src/build.c:1076:7: warning: incompatible implicit declaration of built-in function ‘printf’ [-Wbuiltin-declaration-mismatch]
+ 1076 |       printf(C_CYAN "  ->" C_RESET " %s already installed, skipping\n",
+      |       ^~~~~~
+src/build.c:1076:7: note: include ‘<stdio.h>’ or provide a declaration of ‘printf’
+src/build.c:1076:20: error: expected ‘)’ before string constant
+ 1076 |       printf(C_CYAN "  ->" C_RESET " %s already installed, skipping\n",
+      |             ~      ^~~~~~~
+      |                    )
+src/build.c:1083:21: error: request for member ‘pkgname’ in something not a structure or union
+ 1083 |     pkg_log_path(pkg.pkgname, pkg_log, sizeof(pkg_log));
+      |                     ^
+src/build.c:1086:39: error: ‘LPM_BUILD_DIR’ undeclared (first use in this function)
+ 1086 |     snprintf(ws, sizeof(ws), "%s/%s", LPM_BUILD_DIR, pkg.pkgname);
+      |                                       ^~~~~~~~~~~~~
+src/build.c:1086:57: error: request for member ‘pkgname’ in something not a structure or union
+ 1086 |     snprintf(ws, sizeof(ws), "%s/%s", LPM_BUILD_DIR, pkg.pkgname);
+      |                                                         ^
+src/build.c:1087:5: error: implicit declaration of function ‘mkdir’ [-Wimplicit-function-declaration]
+ 1087 |     mkdir(ws, 0755);
+      |     ^~~~~
+src/build.c:1093:12: error: request for member ‘sha256sums’ in something not a structure or union
+ 1093 |     if (pkg.sha256sums[0][0] || pkg.md5sums[0][0]) {
+      |            ^
+src/build.c:1093:36: error: request for member ‘md5sums’ in something not a structure or union
+ 1093 |     if (pkg.sha256sums[0][0] || pkg.md5sums[0][0]) {
+      |                                    ^
+src/build.c:1094:7: warning: incompatible implicit declaration of built-in function ‘printf’ [-Wbuiltin-declaration-mismatch]
+ 1094 |       printf(C_CYAN "::" C_RESET " Verifying checksums...\n");
+      |       ^~~~~~
+src/build.c:1094:7: note: include ‘<stdio.h>’ or provide a declaration of ‘printf’
+src/build.c:1094:20: error: expected ‘)’ before string constant
+ 1094 |       printf(C_CYAN "::" C_RESET " Verifying checksums...\n");
+      |             ~      ^~~~~
+      |                    )
+src/build.c:1102:5: warning: incompatible implicit declaration of built-in function ‘printf’ [-Wbuiltin-declaration-mismatch]
+ 1102 |     printf(C_BOLD "==> Building %s %s-%s" C_RESET "\n", pkg.pkgname, pkg.pkgver,
+      |     ^~~~~~
+src/build.c:1102:5: note: include ‘<stdio.h>’ or provide a declaration of ‘printf’
+src/build.c:1102:12: error: ‘C_BOLD’ undeclared (first use in this function)
+ 1102 |     printf(C_BOLD "==> Building %s %s-%s" C_RESET "\n", pkg.pkgname, pkg.pkgver,
+      |            ^~~~~~
+src/build.c:1102:18: error: expected ‘)’ before string constant
+ 1102 |     printf(C_BOLD "==> Building %s %s-%s" C_RESET "\n", pkg.pkgname, pkg.pkgver,
+      |           ~      ^~~~~~~~~~~~~~~~~~~~~~~~
+      |                  )
+src/build.c:1104:37: error: request for member ‘pkgname’ in something not a structure or union
+ 1104 |     lpm_log("Building %s %s-%s", pkg.pkgname, pkg.pkgver, pkg.pkgrel);
+      |                                     ^
+src/build.c:1104:50: error: request for member ‘pkgver’ in something not a structure or union
+ 1104 |     lpm_log("Building %s %s-%s", pkg.pkgname, pkg.pkgver, pkg.pkgrel);
+      |                                                  ^
+src/build.c:1104:62: error: request for member ‘pkgrel’ in something not a structure or union
+ 1104 |     lpm_log("Building %s %s-%s", pkg.pkgname, pkg.pkgver, pkg.pkgrel);
+      |                                                              ^
+src/build.c:1112:7: warning: incompatible implicit declaration of built-in function ‘fprintf’ [-Wbuiltin-declaration-mismatch]
+ 1112 |       fprintf(stderr,
+      |       ^~~~~~~
+src/build.c:1112:7: note: include ‘<stdio.h>’ or provide a declaration of ‘fprintf’
+src/build.c:1112:15: error: ‘stderr’ undeclared (first use in this function)
+ 1112 |       fprintf(stderr,
+      |               ^~~~~~
+src/build.c:1112:15: note: ‘stderr’ is defined in header ‘<stdio.h>’; this is probably fixable by adding ‘#include <stdio.h>’
+src/build.c:1113:15: error: ‘C_RED’ undeclared (first use in this function)
+ 1113 |               C_RED "error: " C_RESET "Build failed for %s\n"
+      |               ^~~~~
+src/build.c:1113:20: error: expected ‘)’ before string constant
+ 1113 |               C_RED "error: " C_RESET "Build failed for %s\n"
+      |                    ^~~~~~~~~~
+      |                    )
+src/build.c:1112:14: note: to match this ‘(’
+ 1112 |       fprintf(stderr,
+      |              ^
+src/build.c:1117:7: warning: incompatible implicit declaration of built-in function ‘exit’ [-Wbuiltin-declaration-mismatch]
+ 1117 |       exit(1);
+      |       ^~~~
+src/build.c:1117:7: note: include ‘<stdlib.h>’ or provide a declaration of ‘exit’
+src/build.c:1121:12: error: request for member ‘has_check’ in something not a structure or union
+ 1121 |     if (pkg.has_check) {
+      |            ^
+src/build.c:1122:28: error: request for member ‘yes’ in something not a structure or union
+ 1122 |       int run_check = flags.yes;
+      |                            ^
+src/build.c:1126:39: error: expected ‘)’ before ‘C_BOLD’
+ 1126 |                  "Run test suite for " C_BOLD "%s" C_RESET "? [" C_GREEN
+      |                                       ^~~~~~~
+      |                                       )
+src/build.c:1125:17: note: to match this ‘(’
+ 1125 |         snprintf(prompt, sizeof(prompt),
+      |                 ^
+src/build.c:1124:14: warning: unused variable ‘prompt’ [-Wunused-variable]
+ 1124 |         char prompt[MAX_STR];
+      |              ^~~~~~
+src/build.c:1133:22: error: expected ‘)’ before string constant
+ 1133 |         printf(C_CYAN "::" C_RESET " Running check()...\n");
+      |               ~      ^~~~~
+      |                      )
+src/build.c:1145:20: error: request for member ‘strict’ in something not a structure or union
+ 1145 |           if (flags.strict) {
+      |                    ^
+src/build.c:1146:13: warning: incompatible implicit declaration of built-in function ‘fprintf’ [-Wbuiltin-declaration-mismatch]
+ 1146 |             fprintf(stderr,
+      |             ^~~~~~~
+src/build.c:1146:13: note: include ‘<stdio.h>’ or provide a declaration of ‘fprintf’
+src/build.c:1147:26: error: expected ‘)’ before string constant
+ 1147 |                     C_RED "error: " C_RESET
+      |                          ^~~~~~~~~~
+      |                          )
+src/build.c:1146:20: note: to match this ‘(’
+ 1146 |             fprintf(stderr,
+      |                    ^
+src/build.c:1152:13: warning: incompatible implicit declaration of built-in function ‘exit’ [-Wbuiltin-declaration-mismatch]
+ 1152 |             exit(1);
+      |             ^~~~
+src/build.c:1152:13: note: include ‘<stdlib.h>’ or provide a declaration of ‘exit’
+src/build.c:1154:18: error: ‘C_YELLOW’ undeclared (first use in this function)
+ 1154 |           printf(C_YELLOW "warning: " C_RESET
+      |                  ^~~~~~~~
+src/build.c:1154:26: error: expected ‘)’ before string constant
+ 1154 |           printf(C_YELLOW "warning: " C_RESET
+      |                 ~        ^~~~~~~~~~~~
+      |                          )
+src/build.c:1159:21: error: request for member ‘yes’ in something not a structure or union
+ 1159 |           if (!flags.yes) {
+      |                     ^
+src/build.c:1160:57: error: expected ‘)’ before ‘C_GREEN’
+ 1160 |             if (!confirm("Continue to install anyway? [" C_GREEN "Yes" C_RESET
+      |                         ~                               ^~~~~~~~
+      |                                                         )
+src/build.c:1162:15: warning: incompatible implicit declaration of built-in function ‘exit’ [-Wbuiltin-declaration-mismatch]
+ 1162 |               exit(1);
+      |               ^~~~
+src/build.c:1162:15: note: include ‘<stdlib.h>’ or provide a declaration of ‘exit’
+src/build.c:1165:18: error: ‘C_GREEN’ undeclared (first use in this function)
+ 1165 |           printf(C_GREEN "  check() passed" C_RESET "\n");
+      |                  ^~~~~~~
+src/build.c:1165:25: error: expected ‘)’ before string constant
+ 1165 |           printf(C_GREEN "  check() passed" C_RESET "\n");
+      |                 ~       ^~~~~~~~~~~~~~~~~~~
+      |                         )
+src/build.c:1140:14: warning: unused variable ‘tail_cmd’ [-Wunused-variable]
+ 1140 |         char tail_cmd[MAX_STR];
+      |              ^~~~~~~~
+src/build.c:1178:18: error: expected ‘)’ before string constant
+ 1178 |     printf(C_BOLD "==> Installing %s" C_RESET "\n", queue[qi]);
+      |           ~      ^~~~~~~~~~~~~~~~~~~~
+      |                  )
+src/build.c:1188:7: warning: incompatible implicit declaration of built-in function ‘fprintf’ [-Wbuiltin-declaration-mismatch]
+ 1188 |       fprintf(stderr,
+      |       ^~~~~~~
+src/build.c:1188:7: note: include ‘<stdio.h>’ or provide a declaration of ‘fprintf’
+src/build.c:1189:20: error: expected ‘)’ before string constant
+ 1189 |               C_RED "error: " C_RESET "Install failed for %s\n"
+      |                    ^~~~~~~~~~
+      |                    )
+src/build.c:1188:14: note: to match this ‘(’
+ 1188 |       fprintf(stderr,
+      |              ^
+src/build.c:1193:7: warning: incompatible implicit declaration of built-in function ‘exit’ [-Wbuiltin-declaration-mismatch]
+ 1193 |       exit(1);
+      |       ^~~~
+src/build.c:1193:7: note: include ‘<stdlib.h>’ or provide a declaration of ‘exit’
+src/build.c:1196:18: error: expected ‘)’ before string constant
+ 1196 |     printf(C_CYAN "  ->" C_RESET " Merging into /...\n");
+      |           ~      ^~~~~~~
+      |                  )
+src/build.c:1201:7: warning: incompatible implicit declaration of built-in function ‘fprintf’ [-Wbuiltin-declaration-mismatch]
+ 1201 |       fprintf(stderr, C_RED "error: " C_RESET "Merge failed for %s\n",
+      |       ^~~~~~~
+src/build.c:1201:7: note: include ‘<stdio.h>’ or provide a declaration of ‘fprintf’
+src/build.c:1201:28: error: expected ‘)’ before string constant
+ 1201 |       fprintf(stderr, C_RED "error: " C_RESET "Merge failed for %s\n",
+      |              ~             ^~~~~~~~~~
+      |                            )
+src/build.c:1203:7: warning: incompatible implicit declaration of built-in function ‘exit’ [-Wbuiltin-declaration-mismatch]
+ 1203 |       exit(1);
+      |       ^~~~
+src/build.c:1203:7: note: include ‘<stdlib.h>’ or provide a declaration of ‘exit’
+src/build.c:1207:22: error: request for member ‘pkgname’ in something not a structure or union
+ 1207 |     db_files_save(pkg.pkgname, pkgdir);
+      |                      ^
+src/build.c:1209:15: error: request for member ‘pkgname’ in something not a structure or union
+ 1209 |     db_add(pkg.pkgname, pkg.pkgver, pkg.pkgrel);
+      |               ^
+src/build.c:1209:28: error: request for member ‘pkgver’ in something not a structure or union
+ 1209 |     db_add(pkg.pkgname, pkg.pkgver, pkg.pkgrel);
+      |                            ^
+src/build.c:1209:40: error: request for member ‘pkgrel’ in something not a structure or union
+ 1209 |     db_add(pkg.pkgname, pkg.pkgver, pkg.pkgrel);
+      |                                        ^
+src/build.c:1210:19: error: expected ‘)’ before string constant
+ 1210 |     printf(C_GREEN "==> Installed %s %s-%s" C_RESET "\n", pkg.pkgname,
+      |           ~       ^~~~~~~~~~~~~~~~~~~~~~~~~
+      |                   )
+src/build.c:1212:38: error: request for member ‘pkgname’ in something not a structure or union
+ 1212 |     lpm_log("Installed %s %s-%s", pkg.pkgname, pkg.pkgver, pkg.pkgrel);
+      |                                      ^
+src/build.c:1212:51: error: request for member ‘pkgver’ in something not a structure or union
+ 1212 |     lpm_log("Installed %s %s-%s", pkg.pkgname, pkg.pkgver, pkg.pkgrel);
+      |                                                   ^
+src/build.c:1212:63: error: request for member ‘pkgrel’ in something not a structure or union
+ 1212 |     lpm_log("Installed %s %s-%s", pkg.pkgname, pkg.pkgver, pkg.pkgrel);
+      |                                                               ^
+src/build.c:1197:10: warning: unused variable ‘merge_cmd’ [-Wunused-variable]
+ 1197 |     char merge_cmd[MAX_STR];
+      |          ^~~~~~~~~
+src/build.c:1173:10: warning: unused variable ‘mk_cmd’ [-Wunused-variable]
+ 1173 |     char mk_cmd[MAX_STR];
+      |          ^~~~~~
+src/build.c:1171:10: warning: unused variable ‘pkgdir’ [-Wunused-variable]
+ 1171 |     char pkgdir[MAX_STR];
+      |          ^~~~~~
+src/build.c:1085:10: warning: unused variable ‘ws’ [-Wunused-variable]
+ 1085 |     char ws[MAX_STR];
+      |          ^~
+src/build.c:1082:10: warning: unused variable ‘pkg_log’ [-Wunused-variable]
+ 1082 |     char pkg_log[MAX_STR];
+      |          ^~~~~~~
+src/build.c:1065:10: warning: unused variable ‘pbfile’ [-Wunused-variable]
+ 1065 |     char pbfile[MAX_STR];
+      |          ^~~~~~
+src/build.c:1018:8: warning: unused variable ‘queue’ [-Wunused-variable]
+ 1018 |   char queue[256][MAX_STR];
+      |        ^~~~~
+make: *** [Makefile:10: lpm] Error 1
+🭃diinki_ lotus .

@@ -24,7 +24,7 @@ void cmd_search(int argc, char **argv) {
 
         /* case-insensitive match */
         char name_lower[MAX_STR], query_lower[MAX_STR];
-        strncpy(name_lower,  pkg.pkgname, MAX_STR - 1);
+        snprintf(name_lower,  MAX_STR, "%s", pkg.pkgname);
         strncpy(query_lower, query,       MAX_STR - 1);
         for (char *c = name_lower;  *c; c++) *c = (*c >= 'A' && *c <= 'Z') ? *c + 32 : *c;
         for (char *c = query_lower; *c; c++) *c = (*c >= 'A' && *c <= 'Z') ? *c + 32 : *c;
@@ -121,7 +121,7 @@ void cmd_list(void) {
     while (n < 512 && fgets(line, sizeof(line), f)) {
         line[strcspn(line, "\n")] = '\0';
         if (!line[0]) continue;
-        strncpy(lines[n++], line, MAX_STR - 1);
+        snprintf(lines[n++], MAX_STR, "%s", line);
     }
     fclose(f);
 
