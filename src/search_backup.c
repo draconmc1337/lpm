@@ -109,19 +109,11 @@ static int cmp_str(const void *a, const void *b) {
 }
 
 /* ── cmd_list ────────────────────────────────────────────────────────────── */
-void cmd_list(int argc, char **argv) {
-    /* check for --count flag */
-    int count_only = 0;
-    for (int i = 0; i < argc; i++) {
-        if (strcmp(argv[i], "--count") == 0) { count_only = 1; break; }
-    }
+void cmd_list(void) {
+    check_root(); init_dirs();
 
     FILE *f = fopen(LPM_DB, "r");
-    if (!f) {
-        if (count_only) printf("0\n");
-        else            printf("No packages installed via lpm.\n");
-        return;
-    }
+    if (!f) { printf("No packages installed via lpm.\n"); return; }
 
     char lines[512][MAX_STR];
     int n = 0;
@@ -132,12 +124,6 @@ void cmd_list(int argc, char **argv) {
         snprintf(lines[n++], MAX_STR, "%s", line);
     }
     fclose(f);
-
-    /* --count: print bare number and exit */
-    if (count_only) {
-        printf("%d\n", n);
-        return;
-    }
 
     if (n == 0) { printf("No packages installed via lpm.\n"); return; }
 

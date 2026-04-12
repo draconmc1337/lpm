@@ -1,10 +1,119 @@
-#include "lpm.h"
 #include "config.h"
+#include "lpm.h"
+#include <unistd.h>
 
 /* run a shell command, return exit code */
 static int run(const char *cmd) { return system(cmd); }
 
-/* ensure build workspace exists, download sources */
+/* ── fetch_url ───────────────────────────────────────────────────────────────
+ * Download url → dest with retry logic.
+ * Retries: 3 attempts, 1s delay between.
+ * DNS failure detected and reported immediately — no retry on DNS fail.
+ * Returns 0 on success, -1 on failure.
+ */
+#define FETCH_RETRIES 3
+#define FETCH_DELAY 1
+
+static int fetch_url(const char *url, const char *dest) {
+  char part[MAX_STR];
+  snprintf(part, sizeof(part), "%s.part", dest);
+
+  /* extract hostname for DNS check */
+  char host[256] = "";
+  const char *p = strstr(url, "://");
+  if (p) {
+    p += 3;
+    const char *slash = strchr(p, '/');
+    size_t len = slash ? (size_t)(slash - p) : strlen(p);
+    if (len < sizeof(host)) {
+      strncpy(host, p, len);
+      host[len] = '\0';
+    }
+  }
+
+  for (int attempt = 1; attempt <= FETCH_RETRIES; attempt++) {
+    remove(part);
+
+    if (attempt > 1) {
+      fprintf(stderr, C_YELLOW "  retry %d/%d" C_RESET " — waiting %ds...\n",
+              attempt, FETCH_RETRIES, FETCH_DELAY);
+      lpm_log("FETCH retry %d/%d: %s", attempt, FETCH_RETRIES, url);
+      sleep(FETCH_DELAY);
+    }
+
+    char cmd[MAX_CMD];
+    snprintf(cmd, sizeof(cmd),
+             "wget -q --show-progress --timeout=30 --tries=1 -O '%s' '%s'"
+             " || curl -L --progress-bar --connect-timeout 30 --max-time 120"
+             " --retry 0 -o '%s' '%s'",
+             part, url, part, url);
+
+    int rc = run(cmd);
+
+    struct stat part_st;
+    int have_part = (stat(part, &part_st) == 0);
+
+    /* success: rc=0 AND file is large enough */
+    if (rc == 0 && have_part && part_st.st_size >= (200 * 1024)) {
+      if (rename(part, dest) == 0) {
+        lpm_log("FETCH OK: %s (%.1f KB, attempt %d)", url,
+                part_st.st_size / 1024.0, attempt);
+        return 0;
+      }
+      fprintf(stderr,
+              C_RED "error: " C_RESET "Failed to finalize download of %s\n",
+              url);
+      remove(part);
+      return -1;
+    }
+
+    /* DNS check — if host unreachable, no point retrying */
+    if (host[0]) {
+      char dns_cmd[MAX_STR];
+      snprintf(dns_cmd, sizeof(dns_cmd), "getent hosts '%s' >/dev/null 2>&1",
+               host);
+      if (run(dns_cmd) != 0) {
+        fprintf(stderr,
+                C_RED "error: " C_RESET
+                      "network unavailable (DNS resolution failed for %s)\n",
+                host);
+        lpm_log("FETCH DNS FAIL: %s", url);
+        remove(part);
+        return -1;
+      }
+    }
+
+    /* small response — likely 404 */
+    if (have_part && part_st.st_size > 0 && part_st.st_size < (200 * 1024)) {
+      fprintf(stderr,
+              C_YELLOW
+              "warning: " C_RESET
+              "attempt %d: response too small (%ld bytes) — likely 404\n",
+              attempt, (long)part_st.st_size);
+      lpm_log("FETCH attempt %d SMALL (%ld bytes): %s", attempt,
+              (long)part_st.st_size, url);
+    } else {
+      fprintf(stderr,
+              C_YELLOW "warning: " C_RESET "attempt %d failed (rc=%d): %s\n",
+              attempt, rc, url);
+      lpm_log("FETCH attempt %d FAIL (rc=%d): %s", attempt, rc, url);
+    }
+    remove(part);
+  }
+
+  /* all retries exhausted */
+  fprintf(stderr,
+          C_RED "error: " C_RESET "network timeout while fetching %s\n"
+                "  Failed after %d attempts.\n",
+          url, FETCH_RETRIES);
+  lpm_log("FETCH FAILED after %d attempts: %s", FETCH_RETRIES, url);
+  return -1;
+}
+
+/* ── prepare_workspace ───────────────────────────────────────────────────────
+ * Ensure build workspace exists and all sources are present.
+ * Checks /sources/ local cache first (LFS chroot), then fetches from network.
+ */
 static int prepare_workspace(Pkg *pkg) {
   char ws[MAX_STR];
   snprintf(ws, sizeof(ws), "%s/%s", LPM_BUILD_DIR, pkg->pkgname);
@@ -13,6 +122,7 @@ static int prepare_workspace(Pkg *pkg) {
   for (int i = 0; i < pkg->nsources; i++) {
     if (!pkg->source[i][0])
       continue;
+
     char *fname = strrchr(pkg->source[i], '/');
     if (!fname)
       continue;
@@ -21,23 +131,18 @@ static int prepare_workspace(Pkg *pkg) {
     char dest[MAX_STR];
     snprintf(dest, sizeof(dest), "%s/%s", ws, fname);
 
-    /* check if already downloaded AND not partial */
+    /* already downloaded? verify integrity */
     struct stat st;
     if (stat(dest, &st) == 0) {
-      /* partial download check: size must be > 1KB */
       if (st.st_size < (200 * 1024)) {
         fprintf(stderr,
                 C_YELLOW "warning: " C_RESET
                          "%s looks partial (%ld bytes), re-downloading...\n",
                 fname, (long)st.st_size);
+        lpm_log("CACHE partial (%ld bytes), re-fetch: %s", (long)st.st_size,
+                fname);
         remove(dest);
       } else {
-        /* verify tarball integrity if it's a tar archive */
-        char ext[32] = "";
-        char *dot = strrchr(fname, '.');
-        if (dot)
-          strncpy(ext, dot, sizeof(ext) - 1);
-
         int is_tar = (strstr(fname, ".tar") != NULL);
         if (is_tar) {
           char check_cmd[MAX_STR];
@@ -48,78 +153,43 @@ static int prepare_workspace(Pkg *pkg) {
                     C_YELLOW "warning: " C_RESET
                              "%s is corrupt, re-downloading...\n",
                     fname);
+            lpm_log("CACHE corrupt, re-fetch: %s", fname);
             remove(dest);
           } else {
-            continue; /* file ok, skip download */
+            lpm_log("CACHE hit: %s", fname);
+            continue; /* file ok */
           }
         } else {
+          lpm_log("CACHE hit: %s", fname);
           continue; /* not a tar, trust size check */
         }
       }
     }
 
-    /* check /sources local cache first (LFS chroot) */
+    /* check /sources local cache (LFS chroot) */
     char local_src[MAX_STR];
     snprintf(local_src, sizeof(local_src), "/sources/%s", fname);
     struct stat local_st;
     if (stat(local_src, &local_st) == 0 && local_st.st_size > 0) {
       printf(C_CYAN "  ->" C_RESET " Using local source: %s\n", local_src);
+      lpm_log("LOCAL source: %s", local_src);
       char cp_cmd[MAX_STR];
       snprintf(cp_cmd, sizeof(cp_cmd), "cp '%s' '%s'", local_src, dest);
       if (run(cp_cmd) != 0) {
         fprintf(stderr,
                 C_RED "error: " C_RESET "Failed to copy from /sources/%s\n",
                 fname);
+        lpm_log("LOCAL copy FAILED: %s", local_src);
         return -1;
       }
       continue;
     }
 
+    /* fetch from network with retry */
     printf(C_CYAN "  ->" C_RESET " Fetching %s\n", fname);
-    lpm_log("Downloading %s", pkg->source[i]);
-
-    /* use .part file — atomic download */
-    char part[MAX_STR];
-    snprintf(part, sizeof(part), "%s.part", dest);
-    remove(part); /* remove stale .part from previous interrupted run */
-
-    char cmd[1024];
-    snprintf(cmd, sizeof(cmd),
-             "wget -q --show-progress -O '%s' '%s' "
-             "|| curl -L --progress-bar -o '%s' '%s'",
-             part, pkg->source[i], part, pkg->source[i]);
-
-    int dl_rc = run(cmd);
-    if (dl_rc != 0) {
-      remove(part);
-      fprintf(stderr,
-              C_RED "error: " C_RESET "Failed to fetch %s\n"
-                    "  Check network or source URL in PKGBUILD.\n",
-              pkg->source[i]);
+    lpm_log("FETCH start: %s", pkg->source[i]);
+    if (fetch_url(pkg->source[i], dest) != 0)
       return -1;
-    }
-
-    /* verify .part file is not empty/partial */
-    struct stat part_st;
-    if (stat(part, &part_st) != 0 || part_st.st_size < (200 * 1024)) {
-      remove(part);
-      fprintf(stderr,
-              C_RED
-              "error: " C_RESET
-              "Downloaded file too small — likely a 404 or network error.\n"
-              "  URL: %s\n",
-              pkg->source[i]);
-      return -1;
-    }
-
-    /* atomic rename: .part -> final filename */
-    if (rename(part, dest) != 0) {
-      remove(part);
-      fprintf(stderr,
-              C_RED "error: " C_RESET "Failed to finalize download of %s\n",
-              fname);
-      return -1;
-    }
   }
   return 0;
 }
@@ -789,6 +859,17 @@ void cmd_sync(int argc, char **argv) {
     }
   }
 
+  /* load config once — MAKEFLAGS, RUN_CHECK, DEFAULT_STRICT applied per build
+   */
+  LpmConfig cfg;
+  lpm_config_load(&cfg);
+
+  /* effective flags: CLI flags take priority over config defaults */
+  if (cfg.default_yes && !flags.yes)
+    flags.yes = 1;
+  if (cfg.default_strict && !flags.strict)
+    flags.strict = 1;
+
   /* build + install loop */
   for (int qi = 0; qi < nqueue; qi++) {
     char pbfile[MAX_STR];
@@ -827,19 +908,21 @@ void cmd_sync(int argc, char **argv) {
     }
 
     /* build — log overwrites previous run */
-    printf(C_BOLD "==> Building %s %s-%s" C_RESET "\n", pkg.pkgname, pkg.pkgver,
-           pkg.pkgrel);
+    printf(C_BOLD "[%d/%d] Building %s %s-%s" C_RESET "\n", qi + 1, nqueue,
+           pkg.pkgname, pkg.pkgver, pkg.pkgrel);
     lpm_log("Building %s %s-%s", pkg.pkgname, pkg.pkgver, pkg.pkgrel);
 
     char build_cmd[2048];
     snprintf(build_cmd, sizeof(build_cmd),
-             "bash -c 'source \"%s\" && cd \"%s\" && build' > \"%s\" 2>&1",
-             pbfile, ws, pkg_log);
+             "bash -c 'source \"%s\" && cd \"%s\" && MAKEFLAGS=\"%s\" build' > "
+             "\"%s\" 2>&1",
+             pbfile, ws, cfg.makeflags, pkg_log);
 
     if (run(build_cmd) != 0) {
       fprintf(stderr,
-              C_RED "error: " C_RESET "Build failed for %s\n"
-                    "  See log: " C_CYAN "%s" C_RESET "\n",
+              C_RED "error: " C_RESET "Build failed: %s\n"
+                    "  Phase: build()\n"
+                    "  Log:   " C_CYAN "%s" C_RESET "\n",
               queue[qi], pkg_log);
       lpm_log("Build FAILED: %s", queue[qi]);
       exit(1);
@@ -850,7 +933,8 @@ void cmd_sync(int argc, char **argv) {
       char check_log[MAX_STR];
       snprintf(check_log, sizeof(check_log), "%s/check.log", ws);
 
-      int run_check = flags.yes;
+      /* run_check priority: --yes flag > RUN_CHECK config > prompt */
+      int run_check = flags.yes || cfg.run_check;
       if (!run_check) {
         char prompt[MAX_STR];
         snprintf(prompt, sizeof(prompt),
@@ -859,6 +943,9 @@ void cmd_sync(int argc, char **argv) {
                  queue[qi]);
         run_check = confirm(prompt);
       }
+
+      /* strict priority: --strict flag > STRICT_BUILD config */
+      int is_strict = flags.strict || cfg.strict_build;
 
       if (run_check) {
         printf(C_CYAN "::" C_RESET " Running check()...\n");
@@ -874,13 +961,13 @@ void cmd_sync(int argc, char **argv) {
         run(tail_cmd);
 
         if (rc != 0) {
-          if (flags.strict) {
+          if (is_strict) {
             fprintf(stderr,
                     C_RED "error: " C_RESET
-                          "check() failed (rc=%d) — blocked by --strict\n"
+                          "check() failed (rc=%d) — blocked by strict mode\n"
                           "  See log: " C_CYAN "%s" C_RESET "\n",
                     rc, pkg_log);
-            lpm_log("check() FAILED --strict block: %s (rc=%d)", queue[qi], rc);
+            lpm_log("check() FAILED strict block: %s (rc=%d)", queue[qi], rc);
             exit(1);
           }
           printf(C_YELLOW "warning: " C_RESET
@@ -918,8 +1005,9 @@ void cmd_sync(int argc, char **argv) {
 
     if (run(inst_cmd) != 0) {
       fprintf(stderr,
-              C_RED "error: " C_RESET "Install failed for %s\n"
-                    "  See log: " C_CYAN "%s" C_RESET "\n",
+              C_RED "error: " C_RESET "Install failed: %s\n"
+                    "  Phase: package()\n"
+                    "  Log:   " C_CYAN "%s" C_RESET "\n",
               queue[qi], pkg_log);
       lpm_log("Install FAILED: %s", queue[qi]);
       exit(1);
@@ -1086,6 +1174,17 @@ void cmd_local(int argc, char **argv) {
     }
   }
 
+  /* load config once — MAKEFLAGS, RUN_CHECK, DEFAULT_STRICT applied per build
+   */
+  LpmConfig cfg;
+  lpm_config_load(&cfg);
+
+  /* effective flags: CLI flags take priority over config defaults */
+  if (cfg.default_yes && !flags.yes)
+    flags.yes = 1;
+  if (cfg.default_strict && !flags.strict)
+    flags.strict = 1;
+
   /* build + install loop */
   for (int qi = 0; qi < nqueue; qi++) {
     char pbfile[MAX_STR];
@@ -1125,27 +1224,30 @@ void cmd_local(int argc, char **argv) {
     }
 
     /* build — log overwrites previous run */
-    printf(C_BOLD "==> Building %s %s-%s" C_RESET "\n", pkg.pkgname, pkg.pkgver,
-           pkg.pkgrel);
+    printf(C_BOLD "[%d/%d] Building %s %s-%s" C_RESET "\n", qi + 1, nqueue,
+           pkg.pkgname, pkg.pkgver, pkg.pkgrel);
     lpm_log("Building %s %s-%s", pkg.pkgname, pkg.pkgver, pkg.pkgrel);
 
     char build_cmd[2048];
     snprintf(build_cmd, sizeof(build_cmd),
-             "bash -c 'source \"%s\" && cd \"%s\" && build' > \"%s\" 2>&1",
-             pbfile, ws, pkg_log);
+             "bash -c 'source \"%s\" && cd \"%s\" && MAKEFLAGS=\"%s\" build' > "
+             "\"%s\" 2>&1",
+             pbfile, ws, cfg.makeflags, pkg_log);
 
     if (run(build_cmd) != 0) {
       fprintf(stderr,
-              C_RED "error: " C_RESET "Build failed for %s\n"
-                    "  See log: " C_CYAN "%s" C_RESET "\n",
+              C_RED "error: " C_RESET "Build failed: %s\n"
+                    "  Phase: build()\n"
+                    "  Log:   " C_CYAN "%s" C_RESET "\n",
               queue[qi], pkg_log);
       lpm_log("Build FAILED: %s", queue[qi]);
       exit(1);
     }
 
-    /* check() — --yes auto-runs; --strict blocks on failure */
+    /* check() — config + flags combined */
     if (pkg.has_check) {
-      int run_check = flags.yes;
+      /* run_check priority: --yes flag > RUN_CHECK config > prompt */
+      int run_check = flags.yes || cfg.run_check;
       if (!run_check) {
         char prompt[MAX_STR];
         snprintf(prompt, sizeof(prompt),
@@ -1168,13 +1270,14 @@ void cmd_local(int argc, char **argv) {
         run(tail_cmd);
 
         if (rc != 0) {
-          if (flags.strict) {
+          /* strict: --strict flag OR STRICT_BUILD config */
+          if (flags.strict || cfg.strict_build) {
             fprintf(stderr,
                     C_RED "error: " C_RESET
-                          "check() failed (rc=%d) — blocked by --strict\n"
+                          "check() failed (rc=%d) — blocked by strict mode\n"
                           "  See log: " C_CYAN "%s" C_RESET "\n",
                     rc, pkg_log);
-            lpm_log("check() FAILED --strict block: %s (rc=%d)", queue[qi], rc);
+            lpm_log("check() FAILED strict block: %s (rc=%d)", queue[qi], rc);
             exit(1);
           }
           printf(C_YELLOW "warning: " C_RESET

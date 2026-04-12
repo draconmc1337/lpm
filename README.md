@@ -19,7 +19,7 @@
   <img src="https://img.shields.io/badge/C-0b0e1b?style=for-the-badge&logo=c&logoColor=c2c2c6">
   <img src="https://img.shields.io/badge/Lotus_Linux-30575F?style=for-the-badge">
   <img src="https://img.shields.io/badge/license-GPL--3.0-5a5e6f?style=for-the-badge">
-  <img src="https://img.shields.io/badge/1.1.4.1--alpha-A56039?style=for-the-badge">
+  <img src="https://img.shields.io/badge/1.1.5--alpha-A56039?style=for-the-badge">
 </p>
 
 > **⚠ Alpha software.** LPM is under active development for Lotus Linux. Expect rough edges — but it already builds GCC 15.2.0 from scratch, so it's not *that* rough.
@@ -48,8 +48,10 @@ LPM lands somewhere in the middle:
 - **Tiered removal protection** — NORMAL / IMPORTANT / CRITICAL, driven by `/etc/lpm/lpm.conf`
 - **Dependency resolution** — toposorted build queue with cycle detection
 - **Per-package build logs** — `/var/log/lpm/<pkgname>.log`, overwritten each run. No 50k-line pile-up.
-- **`--yes` / `--strict`** — automation-friendly flags for scripting and CI
+- **Fetch retry system** — 3 attempts with 1s delay, DNS failure detection, detailed error classification
+- **`--yes` / `--strict` / `--bootstrap`** — automation-friendly flags for scripting, CI, and LFS builds
 - **`IgnorePkg`** — skip packages during `lpm -u`, same as pacman
+- **`MAKEFLAGS`** — configurable via `lpm.conf`, defaults to `ceil(nproc/2)`
 - **`lpm-dev`** — separate binary for developer workflow, `-bi` only, no repo fetch
 
 ---
@@ -81,6 +83,7 @@ lpm -qi  <pkg...>   # package info
 lpm -c   <pkg...>   # run check() test suite
 lpm -rcc [pkg...]   # clean build cache
 lpm -l              # list installed packages
+lpm -l --count      # print number of installed packages (bare integer)
 ```
 
 ### Flags for `-S` and `-bi`
@@ -89,6 +92,7 @@ lpm -l              # list installed packages
 |------|-------------|
 | `--yes` | Skip all prompts, auto-run `check()` |
 | `--strict` | `check()` failure blocks install — hard stop |
+| `--bootstrap` | LFS/fresh system mode: auto-yes, skip `check()`, ignore strict |
 
 ```sh
 # typical developer run — no questions asked
@@ -96,6 +100,9 @@ lpm -bi gcc --yes
 
 # CI / automated build — fail fast on test failures
 lpm -bi python3 --yes --strict
+
+# LFS build — no questions, no tests, just install
+lpm -bi setuptools ninja meson kmod coreutils --bootstrap
 ```
 
 ### Flags for `-r`
@@ -115,8 +122,6 @@ Standard bash script. Four functions, all optional except `package()`:
 pkgname="htop"
 pkgver="3.3.0"
 pkgrel="1"
-description="Interactive process viewer"
-license="GPL-2.0-only"
 depends=("ncurses")
 makedepends=()
 source="https://github.com/htop-dev/htop/releases/download/${pkgver}/htop-${pkgver}.tar.xz"
@@ -159,6 +164,22 @@ CriticalPkg = linux dinit lpm
 # Can still be updated manually with 'lpm -u <pkg>'.
 IgnorePkg =
 
+# Passed to every make invocation during build.
+# Default: ceil(nproc/2) — conservative to avoid OOM on large builds.
+MAKEFLAGS = -j4
+
+# Skip all confirmation prompts (automation/scripting).
+DEFAULT_YES = n
+
+# Treat check() failure as a fatal install block globally.
+DEFAULT_STRICT = n
+
+# Automatically run check() after build without asking.
+RUN_CHECK = n
+
+# check() failure blocks install (same as --strict flag).
+STRICT_BUILD = n
+
 # Per-package build log directory.
 LogDir = /var/log/lpm
 
@@ -166,7 +187,8 @@ LogDir = /var/log/lpm
 FilesDir = /var/lib/lpm/files
 ```
 
-`CriticalPkg` lines are additive — split across multiple lines for readability.
+`CriticalPkg` lines are additive — split across multiple lines for readability.  
+Boolean values: only `y` or `n` accepted — anything else is a hard error.
 
 ---
 
@@ -261,37 +283,6 @@ lpm/
 | `/var/log/lpm/<name>.log` | Per-package build log |
 | `/var/log/lpm/audit.log` | Security audit log |
 | `/etc/lpm/lpm.conf` | Configuration |
-
----
-
-## Changelog
-
-### 1.1.4.1-alpha — current
-
-- **Config system** — `/etc/lpm/lpm.conf` with `CriticalPkg`, `IgnorePkg`, `LogDir`, `FilesDir`; replaces the old hardcoded critical package array
-- **Tiered removal UX** — NORMAL / IMPORTANT / CRITICAL, each with appropriate confirmation level
-- **`IgnorePkg`** — packages skipped during `lpm -u`; still updatable manually
-
-### 1.1.4-alpha
-
-- Skipped to 1.1.4.1 due to config system rework during development
-
-### 1.1.3-alpha
-
-- **Per-package logs** — `/var/log/lpm/<pkg>.log`, overwritten each build
-- **`LpmFlags` struct** — centralized flag parsing for `--yes`, `--strict`, `--force`, `--no-confirm`
-- **`--yes`** — skip all prompts, auto-run `check()`; designed for developer and automation use
-- **`--strict`** — `check()` failure is a hard install block
-- **`lpm-dev`** — separate binary, `-bi` only; `build_dev.c` + `main_dev.c`
-- Error messages now always include log path on failure
-
-### 1.1.2-alpha (Hotfix 2)
-
-- **`uninstall()` removed from execution** — PKGBUILD scripts can no longer touch the filesystem on removal; supply-chain attack vector closed
-- **File ownership database** — `db_files_save()` + `db_files_remove()`; removal is `unlink()` per recorded file
-- **Symlink escape protection** — `scan_pkgdir()` rejects symlinks that escape `$pkgdir`
-- **Audit log** — security-sensitive actions logged to `/var/log/lpm/audit.log` with UID
-- **`confirm_word()`** — destructive operations require typing an exact word
 
 ---
 

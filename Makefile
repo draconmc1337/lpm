@@ -12,7 +12,8 @@ $(TARGET): $(SRCS)
 	$(CC) $(CFLAGS) -o $@ $^
 
 install: $(TARGET)
-	install -Dm755 $(TARGET) /usr/bin/lpm
+	install -Dm755 $(TARGET) /usr/bin/lpm && \
+  install -Dm644 lpm.conf /etc/lpm/lpm.conf
 
 clean:
 	rm -f $(TARGET)
