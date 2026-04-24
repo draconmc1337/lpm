@@ -164,3 +164,84 @@ void cmd_list(int argc, char **argv) {
     printf("  ───────────────────────────────────────\n");
     printf("  Total: " C_CYAN "%d" C_RESET " package(s)\n\n", n);
 }
+/* ═══════════════════════════════════════════════════════════════════════
+ * #22  ORPHAN DETECTION  (lpm -Qo)
+ *
+ * An orphan is a package installed as a dependency (reason=DEP) but
+ * no currently-installed package lists it as a dependency anymore.
+ * ═══════════════════════════════════════════════════════════════════════ */
+void cmd_orphans(int argc, char **argv) {
+    (void)argc; (void)argv;
+    init_dirs();
+
+    /* load all installed packages */
+    InstalledPkg *all = NULL;
+    int n = 0;
+    if (db_list_all(&all, &n) != 0 || n == 0) {
+        printf("No packages installed.\n");
+        free(all);
+        return;
+    }
+
+    /* build a set of all packages that are needed as deps */
+    /* needed[i] = 1 if all[i] is required by someone */
+    int *needed = calloc(n, sizeof(int));
+    if (!needed) { free(all); return; }
+
+    for (int i = 0; i < n; i++) {
+        /* read this package's PKGBUILD to get its deps */
+        char pbfile[LPM_PATH_MAX];
+        snprintf(pbfile, sizeof(pbfile), "%s/pkgbuild_%s",
+                 LPM_PKGBUILD_DIR, all[i].name);
+        Pkg pkg;
+        if (pkgbuild_parse(pbfile, &pkg) != 0) continue;
+
+        for (int d = 0; d < pkg.ndepends; d++) {
+            /* mark the dep as needed */
+            for (int j = 0; j < n; j++) {
+                if (!strcmp(all[j].name, pkg.depends[d])) {
+                    needed[j] = 1;
+                    break;
+                }
+            }
+        }
+        for (int d = 0; d < pkg.nmakedepends; d++) {
+            for (int j = 0; j < n; j++) {
+                if (!strcmp(all[j].name, pkg.makedepends[d])) {
+                    needed[j] = 1;
+                    break;
+                }
+            }
+        }
+    }
+
+    /* orphans = installed as DEP + not needed by anyone */
+    int norphans = 0;
+    printf("\n");
+    for (int i = 0; i < n; i++) {
+        /* only flag packages installed as dependency, not explicit */
+        if (all[i].reason != REASON_DEP) continue;
+        if (needed[i]) continue;
+
+        if (norphans == 0)
+            printf("  " C_BOLD "%-26s  %s" C_RESET "\n"
+                   "  ───────────────────────────────────────\n",
+                   "orphan packages", "version");
+
+        printf("  " C_BOLD "%-26s" C_RESET "  " C_YELLOW "%s-%s" C_RESET "\n",
+               all[i].name, all[i].version, all[i].release);
+        norphans++;
+    }
+
+    if (norphans == 0) {
+        printf(C_GREEN "  No orphaned packages found." C_RESET "\n\n");
+    } else {
+        printf("  ───────────────────────────────────────\n");
+        printf("  " C_YELLOW "%d" C_RESET " orphan(s) found."
+               " Remove with: " C_BOLD "lpm -r <pkg>" C_RESET "\n\n",
+               norphans);
+    }
+
+    free(needed);
+    free(all);
+}
