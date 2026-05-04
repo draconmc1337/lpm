@@ -160,6 +160,8 @@ typedef struct {
   int strict;     /* --strict: check() failure = hard block  */
   int force;      /* --force: override dep/critical checks   */
   int no_confirm; /* --no-confirm: non-interactive remove    */
+  int no_recommend; /* --no-recommend: skip optional recommends */
+  int no_check;     /* --no-check: skip check() phase */
 } LpmFlags;
 
 /* ── LpmConfig ───────────────────────────────────────────────────────── */
