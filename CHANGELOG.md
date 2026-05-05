@@ -4,6 +4,7 @@
 
 ### Added
 - `lpm -K` / `lpm --key` command family (`init`, `list`, `recv`, `import`, `trust`) for keyring lifecycle in `/etc/lpm/gnupg`.
+- Minimal `libllpm` C API skeleton (`llpm_initialize`, repo register/sync, transaction lifecycle) with public headers under `include/llpm/`.
 - SHA-512 checksum support in PKGBUILD parsing and checksum selection path.
 - Operation-scoped help support for `-S/-Sy/-Syu --help`.
 
