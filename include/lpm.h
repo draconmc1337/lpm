@@ -16,7 +16,7 @@
 #include <unistd.h>
 
 /* ── version ─────────────────────────────────────────────────────────── */
-#define LPM_VERSION "1.2.0-alpha"
+#define LPM_VERSION "1.3.0-alpha"
 #define LPM_LOCK_FILE "/var/lock/lpm.lock"
 #define LPM_DB_DIR "/var/lib/lpm/db"
 #define LPM_DB "/var/lib/lpm/db/installed"
@@ -134,6 +134,7 @@ typedef struct {
   char source[LPM_MAX_SOURCES][LPM_PATH_MAX];
   int nsources;
   char sha256sums[LPM_MAX_SOURCES][129];
+  char sha512sums[LPM_MAX_SOURCES][129];
   char md5sums[LPM_MAX_SOURCES][33];
   char pbfile[LPM_PATH_MAX];
   int has_check;
@@ -160,6 +161,8 @@ typedef struct {
   int strict;     /* --strict: check() failure = hard block  */
   int force;      /* --force: override dep/critical checks   */
   int no_confirm; /* --no-confirm: non-interactive remove    */
+  int no_recommend; /* --no-recommend: skip optional recommends */
+  int no_check;     /* --no-check: skip check() phase */
 } LpmFlags;
 
 /* ── LpmConfig ───────────────────────────────────────────────────────── */
@@ -321,6 +324,7 @@ void cmd_orphans(int argc, char **argv);
 
 /* ── cache.c ─────────────────────────────────────────────────────────── */
 void cmd_rcc(int argc, char **argv);
+void cmd_key(int argc, char **argv);
 
 /* ── build.c extras ──────────────────────────────────────────────────── */
 int lpm_parse_flags(int argc, char **argv, LpmFlags *f, char **pkgs,
