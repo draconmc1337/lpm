@@ -20,6 +20,8 @@ static int     build_order[MAX_QUEUE];
 static int     nbuild = 0;
 static int     visited[MAX_QUEUE];
 static int     in_stack[MAX_QUEUE];
+static Pkg     pkg_cache[MAX_QUEUE];
+static int     pkg_cached[MAX_QUEUE];
 
 static int already_seen(const char *name) {
     for (int i = 0; i < nresolved; i++)
@@ -31,6 +33,22 @@ static int index_of(const char *name) {
     for (int i = 0; i < nresolved; i++)
         if (strcmp(resolved[i].name, name) == 0) return i;
     return -1;
+}
+
+static int parse_cached(const char *pkgname, Pkg *out) {
+    int idx = index_of(pkgname);
+    if (idx >= 0 && pkg_cached[idx]) {
+        *out = pkg_cache[idx];
+        return 0;
+    }
+    char pbfile[MAX_STR];
+    snprintf(pbfile, sizeof(pbfile), "%s/pkgbuild_%s", LPM_PKGBUILD_DIR, pkgname);
+    if (pkgbuild_parse(pbfile, out) != 0) return -1;
+    if (idx >= 0) {
+        pkg_cache[idx] = *out;
+        pkg_cached[idx] = 1;
+    }
+    return 0;
 }
 
 static void dep_name_only(const char *spec, char *out) {
@@ -61,7 +79,11 @@ static void collect(const char *pkgname, int depth) {
 
     if (node.has_src) {
         Pkg pkg;
-        pkgbuild_parse(pbfile, &pkg);
+        if (parse_cached(pkgname, &pkg) != 0) {
+            strncpy(node.ver, "?", MAX_STR - 1);
+            resolved[nresolved++] = node;
+            return;
+        }
         snprintf(node.ver, MAX_STR, "%s", pkg.pkgver);
         resolved[nresolved++] = node;
         for (int i = 0; i < pkg.ndepends; i++) {
@@ -87,7 +109,7 @@ static void topo_visit(int idx) {
         snprintf(pbfile, sizeof(pbfile), "%s/pkgbuild_%s",
                  LPM_PKGBUILD_DIR, resolved[idx].name);
         Pkg pkg;
-        if (pkgbuild_parse(pbfile, &pkg) == 0) {
+        if (parse_cached(resolved[idx].name, &pkg) == 0) {
             for (int d = 0; d < pkg.ndepends; d++) {
                 char depname[MAX_STR];
                 dep_name_only(pkg.depends[d], depname);
@@ -112,6 +134,7 @@ static void toposort(void) {
 int dep_resolve_queue(const char *pkgname,
                       char out[][MAX_STR], int maxout) {
     nresolved = 0;
+    memset(pkg_cached, 0, sizeof(pkg_cached));
     collect(pkgname, 0);
     toposort();
     int n = 0;

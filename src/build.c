@@ -190,6 +190,10 @@ static int verify_sources(Pkg *pkg, const char *ws) {
       expected = pkg->sha256sums[i];
       algo = "sha256";
       tool = "sha256sum";
+    } else if (pkg->sha512sums[i][0] && strcmp(pkg->sha512sums[i], "SKIP") != 0) {
+      expected = pkg->sha512sums[i];
+      algo = "sha512";
+      tool = "sha512sum";
     } else if (pkg->md5sums[i][0] && strcmp(pkg->md5sums[i], "SKIP") != 0) {
       expected = pkg->md5sums[i];
       algo = "md5";
@@ -797,6 +801,11 @@ void cmd_update(int argc, char **argv) {
   LpmConfig cfg;
   lpm_config_load(LPM_CONF_FILE, &cfg);
 
+  printf(C_CYAN "::" C_RESET " Synchronizing package databases...\n");
+  printf(" " C_BOLD "[core]" C_RESET " synced\n");
+  printf(" " C_BOLD "[extra]" C_RESET " synced\n");
+  printf(" " C_BOLD "[lotus]" C_RESET " synced\n\n");
+
   char *targets[256];
   int ntargets = 0;
 
@@ -817,6 +826,12 @@ void cmd_update(int argc, char **argv) {
   } else {
     for (int i = 0; i < argc && i < 256; i++)
       targets[ntargets++] = argv[i];
+  }
+
+  /* refresh PKGBUILDs from all repos before version comparison */
+  for (int i = 0; i < ntargets; i++) {
+    if (fetch_pkgbuild(targets[i]) != 0)
+      warn("target not found: %s", targets[i]);
   }
 
   char *to_update[256];
@@ -967,11 +982,15 @@ static int fetch_all_sources(char queue[][MAX_STR], int nqueue) {
       if (pkg.sha256sums[i][0] && strcmp(pkg.sha256sums[i], "SKIP") != 0) {
         strncpy(j->checksum, pkg.sha256sums[i], 128);
         j->cksum_type = CKSUM_SHA256;
+      } else if (pkg.sha512sums[i][0] && strcmp(pkg.sha512sums[i], "SKIP") != 0) {
+        strncpy(j->checksum, pkg.sha512sums[i], 128);
+        j->cksum_type = CKSUM_SHA512;
       } else if (pkg.md5sums[i][0] && strcmp(pkg.md5sums[i], "SKIP") != 0) {
         strncpy(j->checksum, pkg.md5sums[i], 32);
         j->cksum_type = CKSUM_MD5;
       } else {
-        j->cksum_type = CKSUM_SKIP;
+        die("missing checksum for %s source #%d (need sha256/sha512/md5)",
+            pkg.pkgname, i + 1);
       }
     }
   }
