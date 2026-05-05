@@ -85,6 +85,13 @@ int pkgbuild_parse(const char *pbfile, Pkg *pkg) {
     snprintf(varname, sizeof(varname), "sha256sums%d", i);
     bash_scalar(pbfile, varname, pkg->sha256sums[i - 1], MAX_STR);
   }
+  /* sha512sums */
+  bash_scalar(pbfile, "sha512sums", pkg->sha512sums[0], MAX_STR);
+  for (int i = 2; i <= MAX_SRCS; i++) {
+    char varname[32];
+    snprintf(varname, sizeof(varname), "sha512sums%d", i);
+    bash_scalar(pbfile, varname, pkg->sha512sums[i - 1], MAX_STR);
+  }
   /* md5sums */
   bash_scalar(pbfile, "md5sums", pkg->md5sums[0], MAX_STR);
   for (int i = 2; i <= MAX_SRCS; i++) {
