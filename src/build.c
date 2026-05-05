@@ -21,6 +21,10 @@ int lpm_parse_flags(int argc, char **argv, LpmFlags *f, char **pkgs,
       f->force = 1;
     else if (!strcmp(argv[i], "--no-confirm"))
       f->no_confirm = 1;
+    else if (!strcmp(argv[i], "--no-recommend"))
+      f->no_recommend = 1;
+    else if (!strcmp(argv[i], "--no-check"))
+      f->no_check = 1;
     else if (n < maxpkgs)
       pkgs[n++] = argv[i];
   }
@@ -186,6 +190,10 @@ static int verify_sources(Pkg *pkg, const char *ws) {
       expected = pkg->sha256sums[i];
       algo = "sha256";
       tool = "sha256sum";
+    } else if (pkg->sha512sums[i][0] && strcmp(pkg->sha512sums[i], "SKIP") != 0) {
+      expected = pkg->sha512sums[i];
+      algo = "sha512";
+      tool = "sha512sum";
     } else if (pkg->md5sums[i][0] && strcmp(pkg->md5sums[i], "SKIP") != 0) {
       expected = pkg->md5sums[i];
       algo = "md5";
@@ -497,9 +505,7 @@ void cmd_sync(int argc, char **argv) {
   /* fetch PKGBUILDs */
   for (int i = 0; i < npkgs; i++)
     if (fetch_pkgbuild(pkgs[i]) != 0)
-      die("pkgbuild_%s not found in base/, extra/, or lotus/\n"
-          "    Check the package name or push PKGBUILD to the repo.",
-          pkgs[i]);
+      die("target not found: %s", pkgs[i]);
 
   /* build full dep queue */
   char queue[256][MAX_STR];
@@ -531,7 +537,7 @@ void cmd_sync(int argc, char **argv) {
     printf("\n");
   }
 
-  if (!cfg.default_yes)
+  if (!flags.no_confirm)
     if (!confirm("\nBuild these packages? [" C_GREEN "Yes" C_RESET
                  "/" C_RED "No" C_RESET "] ")) {
       printf("Aborted.\n");
@@ -547,7 +553,8 @@ void cmd_sync(int argc, char **argv) {
     struct stat st;
     if (stat(pbf, &st) != 0) {
       printf(C_CYAN "  ->" C_RESET " Fetching pkgbuild_%s...\n", queue[qi]);
-      fetch_pkgbuild(queue[qi]);
+      if (fetch_pkgbuild(queue[qi]) != 0)
+        die("target not found: %s", queue[qi]);
     }
   }
 
@@ -794,6 +801,11 @@ void cmd_update(int argc, char **argv) {
   LpmConfig cfg;
   lpm_config_load(LPM_CONF_FILE, &cfg);
 
+  printf(C_CYAN "::" C_RESET " Synchronizing package databases...\n");
+  printf(" " C_BOLD "[core]" C_RESET " synced\n");
+  printf(" " C_BOLD "[extra]" C_RESET " synced\n");
+  printf(" " C_BOLD "[lotus]" C_RESET " synced\n\n");
+
   char *targets[256];
   int ntargets = 0;
 
@@ -814,6 +826,12 @@ void cmd_update(int argc, char **argv) {
   } else {
     for (int i = 0; i < argc && i < 256; i++)
       targets[ntargets++] = argv[i];
+  }
+
+  /* refresh PKGBUILDs from all repos before version comparison */
+  for (int i = 0; i < ntargets; i++) {
+    if (fetch_pkgbuild(targets[i]) != 0)
+      warn("target not found: %s", targets[i]);
   }
 
   char *to_update[256];
@@ -964,11 +982,15 @@ static int fetch_all_sources(char queue[][MAX_STR], int nqueue) {
       if (pkg.sha256sums[i][0] && strcmp(pkg.sha256sums[i], "SKIP") != 0) {
         strncpy(j->checksum, pkg.sha256sums[i], 128);
         j->cksum_type = CKSUM_SHA256;
+      } else if (pkg.sha512sums[i][0] && strcmp(pkg.sha512sums[i], "SKIP") != 0) {
+        strncpy(j->checksum, pkg.sha512sums[i], 128);
+        j->cksum_type = CKSUM_SHA512;
       } else if (pkg.md5sums[i][0] && strcmp(pkg.md5sums[i], "SKIP") != 0) {
         strncpy(j->checksum, pkg.md5sums[i], 32);
         j->cksum_type = CKSUM_MD5;
       } else {
-        j->cksum_type = CKSUM_SKIP;
+        die("missing checksum for %s source #%d (need sha256/sha512/md5)",
+            pkg.pkgname, i + 1);
       }
     }
   }
