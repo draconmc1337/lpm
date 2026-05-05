@@ -801,6 +801,11 @@ void cmd_update(int argc, char **argv) {
   LpmConfig cfg;
   lpm_config_load(LPM_CONF_FILE, &cfg);
 
+  printf(C_CYAN "::" C_RESET " Synchronizing package databases...\n");
+  printf(" " C_BOLD "[core]" C_RESET " synced\n");
+  printf(" " C_BOLD "[extra]" C_RESET " synced\n");
+  printf(" " C_BOLD "[lotus]" C_RESET " synced\n\n");
+
   char *targets[256];
   int ntargets = 0;
 
@@ -821,6 +826,12 @@ void cmd_update(int argc, char **argv) {
   } else {
     for (int i = 0; i < argc && i < 256; i++)
       targets[ntargets++] = argv[i];
+  }
+
+  /* refresh PKGBUILDs from all repos before version comparison */
+  for (int i = 0; i < ntargets; i++) {
+    if (fetch_pkgbuild(targets[i]) != 0)
+      warn("target not found: %s", targets[i]);
   }
 
   char *to_update[256];
