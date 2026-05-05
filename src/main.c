@@ -26,7 +26,8 @@ static void usage(void) {
 }
 
 static void usage_op(const char *op) {
-  if (!strcmp(op, "-S") || !strcmp(op, "--sync")) {
+  if (!strcmp(op, "-S") || !strcmp(op, "-Sy") || !strcmp(op, "-Syu") ||
+      !strcmp(op, "--sync")) {
     printf("usage: lpm -S [options] <package(s)>\n"
            "sync options:\n"
            "  -S           install target package(s)\n"
