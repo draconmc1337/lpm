@@ -16,7 +16,7 @@
 #include <unistd.h>
 
 /* ── version ─────────────────────────────────────────────────────────── */
-#define LPM_VERSION "1.2.0-alpha"
+#define LPM_VERSION "1.3.0-alpha"
 #define LPM_LOCK_FILE "/var/lock/lpm.lock"
 #define LPM_DB_DIR "/var/lib/lpm/db"
 #define LPM_DB "/var/lib/lpm/db/installed"
@@ -324,6 +324,7 @@ void cmd_orphans(int argc, char **argv);
 
 /* ── cache.c ─────────────────────────────────────────────────────────── */
 void cmd_rcc(int argc, char **argv);
+void cmd_key(int argc, char **argv);
 
 /* ── build.c extras ──────────────────────────────────────────────────── */
 int lpm_parse_flags(int argc, char **argv, LpmFlags *f, char **pkgs,

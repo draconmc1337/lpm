@@ -18,6 +18,7 @@ static void usage(void) {
          "    lpm {-V --version}\n"
          "    lpm {-D --deps}     [options] [package(s)]\n"
          "    lpm {-Q --query}    [options] [package(s)]\n"
+         "    lpm {-K --key}      <subcommand> [args]\n"
          "    lpm {-R --remove}   [options] <package(s)>\n"
          "    lpm {-S --sync}     [options] [package(s)]\n"
          "    lpm {-U --upgrade}  [options] [package(s)]\n"
@@ -86,6 +87,8 @@ int main(int argc, char **argv) {
     cmd = "-U";
   } else if (!strcmp(cmd, "--version")) {
     cmd = "-V";
+  } else if (!strcmp(cmd, "--key")) {
+    cmd = "-K";
   }
 
   int needs_lock = strcmp(cmd, "-s") != 0 && strcmp(cmd, "-qi") != 0 &&
@@ -136,6 +139,8 @@ int main(int argc, char **argv) {
     cmd_list(sub_argc, sub_argv);
   else if (!strcmp(cmd, "-Qo"))
     cmd_orphans(sub_argc, sub_argv);
+  else if (!strcmp(cmd, "-K"))
+    cmd_key(sub_argc, sub_argv);
   else if (!strcmp(cmd, "-V") || !strcmp(cmd, "-v"))
     printf("lpm %s\n", LPM_VERSION);
   else if (!strcmp(cmd, "-h") || !strcmp(cmd, "--help"))
