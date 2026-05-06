@@ -14,6 +14,21 @@ typedef struct {
     int  depth;
 } DepNode;
 
+typedef enum {
+    LLPM_DEP_ANY = 0,
+    LLPM_DEP_EQ,
+    LLPM_DEP_GE,
+    LLPM_DEP_LE,
+    LLPM_DEP_GT,
+    LLPM_DEP_LT
+} llpm_depmod_t;
+
+typedef struct {
+    char name[MAX_STR];
+    char ver[MAX_STR];
+    llpm_depmod_t op;
+} DepSpec;
+
 static DepNode resolved[MAX_QUEUE];
 static int     nresolved = 0;
 static int     build_order[MAX_QUEUE];
@@ -51,11 +66,132 @@ static int parse_cached(const char *pkgname, Pkg *out) {
     return 0;
 }
 
-static void dep_name_only(const char *spec, char *out) {
-    strncpy(out, spec, MAX_STR - 1);
-    out[MAX_STR - 1] = '\0';
-    char *op = strpbrk(out, "><= ");
-    if (op) *op = '\0';
+static int parse_int_segment(const char *s, int *consumed) {
+    int value = 0;
+    int i = 0;
+    while (s[i] >= '0' && s[i] <= '9') {
+        value = (value * 10) + (s[i] - '0');
+        i++;
+    }
+    *consumed = i;
+    return value;
+}
+
+static int stage_rank(const char *s, int *consumed) {
+    if (strncmp(s, "alpha", 5) == 0) { *consumed = 5; return 0; }
+    if (strncmp(s, "beta", 4) == 0)  { *consumed = 4; return 1; }
+    if (strncmp(s, "rc", 2) == 0)    { *consumed = 2; return 2; }
+    *consumed = 0;
+    return 3;
+}
+
+static int llpm_vercmp(const char *a, const char *b) {
+    const char *pa = a;
+    const char *pb = b;
+    int eca = 0;
+    int ecb = 0;
+    int epoch_a = 0;
+    int epoch_b = 0;
+
+    if (!a || !b) return 0;
+
+    epoch_a = parse_int_segment(pa, &eca);
+    if (eca > 0 && pa[eca] == ':') pa += (eca + 1);
+    else epoch_a = 0;
+
+    epoch_b = parse_int_segment(pb, &ecb);
+    if (ecb > 0 && pb[ecb] == ':') pb += (ecb + 1);
+    else epoch_b = 0;
+
+    if (epoch_a != epoch_b) return (epoch_a > epoch_b) ? 1 : -1;
+
+    while (*pa || *pb) {
+        int ca = 0, cb = 0;
+        int has_num_a = (*pa >= '0' && *pa <= '9');
+        int has_num_b = (*pb >= '0' && *pb <= '9');
+        int sa = has_num_a ? parse_int_segment(pa, &ca) : 0;
+        int sb = has_num_b ? parse_int_segment(pb, &cb) : 0;
+
+        if (sa != sb) return (sa > sb) ? 1 : -1;
+        pa += ca;
+        pb += cb;
+
+        if (*pa == '.' || *pa == '-') pa++;
+        if (*pb == '.' || *pb == '-') pb++;
+
+        if (!*pa && *pb) {
+            int z = 0, c = 0;
+            if (*pb >= '0' && *pb <= '9') {
+                z = parse_int_segment(pb, &c);
+                if (z != 0) return -1;
+                pb += c;
+                if (*pb == '.' || *pb == '-') pb++;
+                continue;
+            }
+        }
+        if (!*pb && *pa) {
+            int z = 0, c = 0;
+            if (*pa >= '0' && *pa <= '9') {
+                z = parse_int_segment(pa, &c);
+                if (z != 0) return 1;
+                pa += c;
+                if (*pa == '.' || *pa == '-') pa++;
+                continue;
+            }
+        }
+
+        if ((*pa < '0' || *pa > '9') && (*pb < '0' || *pb > '9')) {
+            int ta = 0, tb = 0;
+            int ra = stage_rank(pa, &ta);
+            int rb = stage_rank(pb, &tb);
+            if (ra != rb) return (ra > rb) ? 1 : -1;
+            pa += ta;
+            pb += tb;
+            while (*pa == '.' || *pa == '-') pa++;
+            while (*pb == '.' || *pb == '-') pb++;
+        }
+    }
+    return 0;
+}
+
+static void dep_parse(const char *spec, DepSpec *out) {
+    const char *p = spec;
+    memset(out, 0, sizeof(*out));
+    out->op = LLPM_DEP_ANY;
+
+    while (*p == ' ') p++;
+    size_t ni = 0;
+    while (*p && *p != ' ' && *p != '<' && *p != '>' && *p != '=') {
+        if (ni + 1 < sizeof(out->name)) out->name[ni++] = *p;
+        p++;
+    }
+    out->name[ni] = '\0';
+    while (*p == ' ') p++;
+
+    if (p[0] == '>' && p[1] == '=') { out->op = LLPM_DEP_GE; p += 2; }
+    else if (p[0] == '<' && p[1] == '=') { out->op = LLPM_DEP_LE; p += 2; }
+    else if (p[0] == '>') { out->op = LLPM_DEP_GT; p += 1; }
+    else if (p[0] == '<') { out->op = LLPM_DEP_LT; p += 1; }
+    else if (p[0] == '=') { out->op = LLPM_DEP_EQ; p += 1; }
+
+    while (*p == ' ') p++;
+    snprintf(out->ver, sizeof(out->ver), "%s", p);
+}
+
+static int dep_constraint_satisfied(const DepSpec *dep, const char *installed_ver) {
+    int cmp;
+    if (!dep || dep->op == LLPM_DEP_ANY) return 1;
+    if (!installed_ver || !installed_ver[0] || !dep->ver[0]) return 0;
+    cmp = llpm_vercmp(installed_ver, dep->ver);
+    switch (dep->op) {
+        case LLPM_DEP_EQ: return cmp == 0;
+        case LLPM_DEP_GE: return cmp >= 0;
+        case LLPM_DEP_LE: return cmp <= 0;
+        case LLPM_DEP_GT: return cmp > 0;
+        case LLPM_DEP_LT: return cmp < 0;
+        case LLPM_DEP_ANY:
+        default: return 1;
+    }
 }
 
 
@@ -87,9 +223,12 @@ static void collect(const char *pkgname, int depth) {
         snprintf(node.ver, MAX_STR, "%s", pkg.pkgver);
         resolved[nresolved++] = node;
         for (int i = 0; i < pkg.ndepends; i++) {
-            char depname[MAX_STR];
-            dep_name_only(pkg.depends[i], depname);
-            collect(depname, depth + 1);
+            DepSpec dep;
+            dep_parse(pkg.depends[i], &dep);
+            char *inst_ver = db_get_version(dep.name);
+            int ok = dep_constraint_satisfied(&dep, inst_ver);
+            free(inst_ver);
+            if (!ok) collect(dep.name, depth + 1);
         }
     } else {
         strncpy(node.ver, "?", MAX_STR - 1);
@@ -111,9 +250,9 @@ static void topo_visit(int idx) {
         Pkg pkg;
         if (parse_cached(resolved[idx].name, &pkg) == 0) {
             for (int d = 0; d < pkg.ndepends; d++) {
-                char depname[MAX_STR];
-                dep_name_only(pkg.depends[d], depname);
-                int di = index_of(depname);
+                DepSpec dep;
+                dep_parse(pkg.depends[d], &dep);
+                int di = index_of(dep.name);
                 if (di >= 0) topo_visit(di);
             }
         }
