@@ -2,6 +2,7 @@
 #include <stdarg.h>
 
 static int run(const char *cmd) { return system(cmd); }
+#define LPM_KEYRING_DIR "/etc/lpm/gnupg"
 
 /* forward declaration */
 static int fetch_all_sources(char queue[][MAX_STR], int nqueue);
@@ -234,6 +235,34 @@ static int verify_sources(Pkg *pkg, const char *ws) {
   return ok;
 }
 
+static int verify_source_signatures(Pkg *pkg, const char *ws) {
+  for (int i = 0; i < pkg->nsources; i++) {
+    if (!pkg->source[i][0]) continue;
+    char *fname = strrchr(pkg->source[i], '/');
+    if (!fname) continue;
+    fname++;
+
+    char srcpath[MAX_STR], sigpath[MAX_STR];
+    snprintf(srcpath, sizeof(srcpath), "%s/%s", ws, fname);
+    snprintf(sigpath, sizeof(sigpath), "%s/%s.sig", ws, fname);
+
+    struct stat st;
+    if (stat(sigpath, &st) != 0) continue; /* no sig shipped */
+
+    printf(C_CYAN "  ->" C_RESET " Verifying signature: %s.sig\n", fname);
+    char cmd[MAX_CMD];
+    snprintf(cmd, sizeof(cmd),
+             "gpg --homedir '%s' --verify '%s' '%s' >/dev/null 2>&1",
+             LPM_KEYRING_DIR, sigpath, srcpath);
+    if (run(cmd) != 0) {
+      fprintf(stderr, C_RED "error: " C_RESET
+                      "GPG verification failed for %s\n", fname);
+      return -1;
+    }
+  }
+  return 0;
+}
+
 /* ── shared build+install core ───────────────────────────────────────── */
 static void do_build_install(Pkg *pkg, const char *pbfile, LpmConfig *cfg,
                              int qi, int nqueue) {
@@ -247,6 +276,8 @@ static void do_build_install(Pkg *pkg, const char *pbfile, LpmConfig *cfg,
   printf(C_BOLD "[%d/%d] Building %s %s-%s" C_RESET "\n", qi + 1, nqueue,
          pkg->pkgname, pkg->pkgver, pkg->pkgrel);
   lpm_log("Building %s %s-%s", pkg->pkgname, pkg->pkgver, pkg->pkgrel);
+
+  if (verify_source_signatures(pkg, ws) != 0) exit(1);
 
   char build_cmd[MAX_CMD];
   snprintf(build_cmd, sizeof(build_cmd),
@@ -507,6 +538,7 @@ void cmd_sync(int argc, char **argv) {
     if (fetch_pkgbuild(pkgs[i]) != 0)
       die("target not found: %s", pkgs[i]);
 
+  printf(C_CYAN "::" C_RESET " Checking dependencies...\n");
   /* build full dep queue */
   char queue[256][MAX_STR];
   int nqueue = 0;
@@ -528,6 +560,9 @@ void cmd_sync(int argc, char **argv) {
   }
 
   cmd_deptree(npkgs, pkgs);
+  printf(C_GREEN ":: done" C_RESET "\n");
+  printf(C_CYAN "::" C_RESET " Looking for conflicting packages...\n");
+  printf(C_GREEN ":: done" C_RESET "\n");
 
   if (nqueue > 0) {
     printf(C_CYAN "::" C_RESET " Will build " C_BOLD "%d" C_RESET

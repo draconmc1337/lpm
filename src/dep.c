@@ -14,6 +14,21 @@ typedef struct {
     int  depth;
 } DepNode;
 
+typedef enum {
+    LLPM_DEP_ANY = 0,
+    LLPM_DEP_EQ,
+    LLPM_DEP_GE,
+    LLPM_DEP_LE,
+    LLPM_DEP_GT,
+    LLPM_DEP_LT
+} llpm_depmod_t;
+
+typedef struct {
+    char name[MAX_STR];
+    char ver[MAX_STR];
+    llpm_depmod_t op;
+} DepSpec;
+
 static DepNode resolved[MAX_QUEUE];
 static int     nresolved = 0;
 static int     build_order[MAX_QUEUE];
@@ -87,9 +102,12 @@ static void collect(const char *pkgname, int depth) {
         snprintf(node.ver, MAX_STR, "%s", pkg.pkgver);
         resolved[nresolved++] = node;
         for (int i = 0; i < pkg.ndepends; i++) {
-            char depname[MAX_STR];
-            dep_name_only(pkg.depends[i], depname);
-            collect(depname, depth + 1);
+            DepSpec dep;
+            dep_parse(pkg.depends[i], &dep);
+            char *inst_ver = db_get_version(dep.name);
+            int ok = dep_constraint_satisfied(&dep, inst_ver);
+            free(inst_ver);
+            if (!ok) collect(dep.name, depth + 1);
         }
     } else {
         strncpy(node.ver, "?", MAX_STR - 1);
@@ -111,9 +129,9 @@ static void topo_visit(int idx) {
         Pkg pkg;
         if (parse_cached(resolved[idx].name, &pkg) == 0) {
             for (int d = 0; d < pkg.ndepends; d++) {
-                char depname[MAX_STR];
-                dep_name_only(pkg.depends[d], depname);
-                int di = index_of(depname);
+                DepSpec dep;
+                dep_parse(pkg.depends[d], &dep);
+                int di = index_of(dep.name);
                 if (di >= 0) topo_visit(di);
             }
         }
