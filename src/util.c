@@ -221,10 +221,14 @@ char *util_strip(char *s) {
 
 /* ── util_run ────────────────────────────────────────────────────────── */
 int util_run(const char *cmd) {
-    if (g_verbose) printf(C_GRAY "  $ %s\n" C_RESET, cmd);
+    if (g_verbose >= 1) printf(C_GRAY "  $ %s\n" C_RESET, cmd);
     int ret = system(cmd);
     if (ret == -1) return -1;
-    return WEXITSTATUS(ret);
+    int code = WEXITSTATUS(ret);
+    if (g_verbose >= 2) {
+        printf(C_GRAY "  -> exit code: %d\n" C_RESET, code);
+    }
+    return code;
 }
 
 int util_run_env(const char *cmd, char *const envp[]) {
