@@ -13,7 +13,8 @@ typedef enum {
   LLPM_ERR_STATE,
   LLPM_ERR_INTERNAL,
   LLPM_ERR_LIMIT,
-  LLPM_ERR_VERIFY
+  LLPM_ERR_VERIFY,
+  LLPM_ERR_NOSPC
 } llpm_errno_t;
 
 const char *llpm_strerror(llpm_errno_t err);
