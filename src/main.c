@@ -18,7 +18,6 @@ static void usage(void) {
          "    lpm {-V --version}\n"
          "    lpm {-D --deps}     [options] [package(s)]\n"
          "    lpm {-Q --query}    [options] [package(s)]\n"
-         "    lpm {-K --key}      <subcommand> [args]\n"
          "    lpm {-R --remove}   [options] <package(s)>\n"
          "    lpm {-S --sync}     [options] [package(s)]\n"
          "    lpm {-U --upgrade}  [options] [package(s)]\n"
@@ -27,7 +26,8 @@ static void usage(void) {
 }
 
 static void usage_op(const char *op) {
-  if ((op[0] == '-' && op[1] == 'S') || !strcmp(op, "--sync")) {
+  if (!strcmp(op, "-S") || !strcmp(op, "-Sy") || !strcmp(op, "-Syu") ||
+      !strcmp(op, "--sync")) {
     printf("usage: lpm -S [options] <package(s)>\n"
            "sync options:\n"
            "  -S           install target package(s)\n"
@@ -72,10 +72,8 @@ int main(int argc, char **argv) {
   int sub_argc = argc - 2;
   char **sub_argv = argv + 2;
 
-  if (!strcmp(cmd, "--sync")) {
-    cmd = "-S";
-  } else if (cmd[0] == '-' && cmd[1] == 'S') {
-    cmd = "-S";
+  if (!strcmp(cmd, "-Syu") || !strcmp(cmd, "--sync")) {
+    cmd = "-u";
   } else if (!strcmp(cmd, "--sync-only")) {
     cmd = "-S";
   } else if (!strcmp(cmd, "--query")) {
@@ -88,8 +86,6 @@ int main(int argc, char **argv) {
     cmd = "-U";
   } else if (!strcmp(cmd, "--version")) {
     cmd = "-V";
-  } else if (!strcmp(cmd, "--key")) {
-    cmd = "-K";
   }
 
   int needs_lock = strcmp(cmd, "-s") != 0 && strcmp(cmd, "-qi") != 0 &&
@@ -120,6 +116,8 @@ int main(int argc, char **argv) {
     cmd_sync(sub_argc, sub_argv);
   else if (!strcmp(cmd, "-bi"))
     cmd_local(sub_argc, sub_argv);
+  else if (!strcmp(cmd, "-Sy"))
+    cmd_fetch(sub_argc, sub_argv);
   else if (!strcmp(cmd, "-c"))
     cmd_check(sub_argc, sub_argv);
   else if (!strcmp(cmd, "-r") || !strcmp(cmd, "-R"))
@@ -138,8 +136,6 @@ int main(int argc, char **argv) {
     cmd_list(sub_argc, sub_argv);
   else if (!strcmp(cmd, "-Qo"))
     cmd_orphans(sub_argc, sub_argv);
-  else if (!strcmp(cmd, "-K"))
-    cmd_key(sub_argc, sub_argv);
   else if (!strcmp(cmd, "-V") || !strcmp(cmd, "-v"))
     printf("lpm %s\n", LPM_VERSION);
   else if (!strcmp(cmd, "-h") || !strcmp(cmd, "--help"))
