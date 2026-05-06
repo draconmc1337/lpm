@@ -26,8 +26,7 @@ static void usage(void) {
 }
 
 static void usage_op(const char *op) {
-  if (!strcmp(op, "-S") || !strcmp(op, "-Sy") || !strcmp(op, "-Syu") ||
-      !strcmp(op, "--sync")) {
+  if ((op[0] == '-' && op[1] == 'S') || !strcmp(op, "--sync")) {
     printf("usage: lpm -S [options] <package(s)>\n"
            "sync options:\n"
            "  -S           install target package(s)\n"
@@ -72,8 +71,10 @@ int main(int argc, char **argv) {
   int sub_argc = argc - 2;
   char **sub_argv = argv + 2;
 
-  if (!strcmp(cmd, "-Syu") || !strcmp(cmd, "--sync")) {
-    cmd = "-u";
+  if (!strcmp(cmd, "--sync")) {
+    cmd = "-S";
+  } else if (cmd[0] == '-' && cmd[1] == 'S') {
+    cmd = "-S";
   } else if (!strcmp(cmd, "--sync-only")) {
     cmd = "-S";
   } else if (!strcmp(cmd, "--query")) {
@@ -116,8 +117,6 @@ int main(int argc, char **argv) {
     cmd_sync(sub_argc, sub_argv);
   else if (!strcmp(cmd, "-bi"))
     cmd_local(sub_argc, sub_argv);
-  else if (!strcmp(cmd, "-Sy"))
-    cmd_fetch(sub_argc, sub_argv);
   else if (!strcmp(cmd, "-c"))
     cmd_check(sub_argc, sub_argv);
   else if (!strcmp(cmd, "-r") || !strcmp(cmd, "-R"))
