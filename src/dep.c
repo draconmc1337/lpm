@@ -86,16 +86,59 @@ static int stage_rank(const char *s, int *consumed) {
 }
 
 static int llpm_vercmp(const char *a, const char *b) {
-    const char *pa = a, *pb = b;
+    const char *pa = a;
+    const char *pb = b;
+    int eca = 0;
+    int ecb = 0;
+    int epoch_a = 0;
+    int epoch_b = 0;
+
+    if (!a || !b) return 0;
+
+    epoch_a = parse_int_segment(pa, &eca);
+    if (eca > 0 && pa[eca] == ':') pa += (eca + 1);
+    else epoch_a = 0;
+
+    epoch_b = parse_int_segment(pb, &ecb);
+    if (ecb > 0 && pb[ecb] == ':') pb += (ecb + 1);
+    else epoch_b = 0;
+
+    if (epoch_a != epoch_b) return (epoch_a > epoch_b) ? 1 : -1;
+
     while (*pa || *pb) {
         int ca = 0, cb = 0;
-        int sa = parse_int_segment(pa, &ca);
-        int sb = parse_int_segment(pb, &cb);
+        int has_num_a = (*pa >= '0' && *pa <= '9');
+        int has_num_b = (*pb >= '0' && *pb <= '9');
+        int sa = has_num_a ? parse_int_segment(pa, &ca) : 0;
+        int sb = has_num_b ? parse_int_segment(pb, &cb) : 0;
+
         if (sa != sb) return (sa > sb) ? 1 : -1;
-        pa += ca; pb += cb;
+        pa += ca;
+        pb += cb;
 
         if (*pa == '.' || *pa == '-') pa++;
         if (*pb == '.' || *pb == '-') pb++;
+
+        if (!*pa && *pb) {
+            int z = 0, c = 0;
+            if (*pb >= '0' && *pb <= '9') {
+                z = parse_int_segment(pb, &c);
+                if (z != 0) return -1;
+                pb += c;
+                if (*pb == '.' || *pb == '-') pb++;
+                continue;
+            }
+        }
+        if (!*pb && *pa) {
+            int z = 0, c = 0;
+            if (*pa >= '0' && *pa <= '9') {
+                z = parse_int_segment(pa, &c);
+                if (z != 0) return 1;
+                pa += c;
+                if (*pa == '.' || *pa == '-') pa++;
+                continue;
+            }
+        }
 
         if ((*pa < '0' || *pa > '9') && (*pb < '0' || *pb > '9')) {
             int ta = 0, tb = 0;
@@ -104,6 +147,8 @@ static int llpm_vercmp(const char *a, const char *b) {
             if (ra != rb) return (ra > rb) ? 1 : -1;
             pa += ta;
             pb += tb;
+            while (*pa == '.' || *pa == '-') pa++;
+            while (*pb == '.' || *pb == '-') pb++;
         }
     }
     return 0;
