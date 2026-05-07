@@ -5,9 +5,7 @@ CFLAGS  = -Wall -Wextra -O2 -Iinclude
 SRCS = src/main.c src/util.c src/db.c src/pkgbuild.c \
        src/build.c src/search.c src/cache.c src/dep.c \
        src/config.c src/download.c src/checksum.c \
-       src/transaction.c src/merge.c src/safety.c src/key.c \
-       src/lpkg.c src/pkgbuild_parser.c src/recommend.c src/sync.c
-
+       src/transaction.c src/merge.c src/safety.c src/key.c src/profile.c
 TARGET  = lpm
 
 # ── libllpm static library ────────────────────────────────────────────

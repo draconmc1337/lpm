@@ -234,12 +234,7 @@ typedef struct {
   int max_dl_threads;
   int verify_sig;
   char downloader[16];
-
-  /* build artifacts */
-  int keep_src;
-  int keep_pkg;
-  int check_space;
-
+  char profile[64];
   /* package lists */
   char critical_pkgs[256][64];
   int n_critical;
@@ -423,6 +418,8 @@ void cmd_rcc(int argc, char **argv);
 
 /* ── key.c (GPG keyring — kept from lpm.git) ─────────────────────────── */
 void cmd_key(int argc, char **argv);
+void cmd_profile(int argc, char **argv);
+void cmd_doctor(int argc, char **argv);
 
 /* ── lpkg.c — binary package format (.lpkg) ─────────────────────────── */
 void cmd_pack(int argc, char **argv);
