@@ -433,8 +433,10 @@ int safety_check_toolchain(const char *pkgdir, const char *pkgname) {
     return blocked > 0 ? -1 : 0;
 }
 
+/* ── global cancel flag — set by SIGINT/SIGTERM handler in main.c ────── */
+volatile sig_atomic_t g_cancel = 0;
+
 /* ── lock file ───────────────────────────────────────────────────────── */
-int g_lock_fd = -1;
 
 /* Return values:
  *   0  — lock acquired OK

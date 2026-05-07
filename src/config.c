@@ -2,9 +2,6 @@
 #include <ctype.h>
 #include <stdarg.h>
 
-LpmConfig g_cfg;
-int       g_verbose = 0;
-
 void lpm_config_defaults(LpmConfig *cfg) {
     memset(cfg, 0, sizeof(*cfg));
     strncpy(cfg->cflags,   "-O2 -pipe -fstack-protector-strong -D_FORTIFY_SOURCE=2", sizeof(cfg->cflags)-1);
@@ -17,18 +14,13 @@ void lpm_config_defaults(LpmConfig *cfg) {
     strncpy(cfg->build_dir, "/var/cache/lpm", sizeof(cfg->build_dir)-1);
     strncpy(cfg->pkg_dest,  "/var/cache/lpm", sizeof(cfg->pkg_dest)-1);
     strncpy(cfg->src_dest,  "/var/cache/lpm", sizeof(cfg->src_dest)-1);
-    cfg->color = 1; cfg->confirm = 1;
+    cfg->color = 1;
     cfg->keep_src = 0; cfg->keep_pkg = 0;
     cfg->check_space = 1; cfg->parallel_dl = 1;
     cfg->max_dl_threads = 4; cfg->verify_sig = 0;
     strncpy(cfg->downloader, "auto", sizeof(cfg->downloader)-1);
-    /* compat fields for old API */
-    cfg->default_yes    = 0;
-    cfg->default_strict = 0;
-    cfg->run_check      = 0;
-    cfg->strict_build   = 0;
-    cfg->n_critical     = 0;
-    cfg->n_ignore       = 0;
+    cfg->n_critical = 0;
+    cfg->n_ignore   = 0;
     strncpy(cfg->log_dir,   LPM_LOG_DIR,   sizeof(cfg->log_dir)-1);
     strncpy(cfg->files_dir, LPM_FILES_DIR, sizeof(cfg->files_dir)-1);
 }
@@ -47,7 +39,6 @@ static int parse_bool(const char *val) {
 }
 
 static void add_pkg_list(char list[][64], int *count, const char *val) {
-    /* space/comma separated */
     char tmp[1024]; strncpy(tmp, val, sizeof(tmp)-1);
     char *tok = strtok(tmp, " ,");
     while (tok && *count < 256) {
@@ -77,33 +68,29 @@ int lpm_config_load(const char *path, LpmConfig *cfg) {
         while (isspace((unsigned char)*val)) val++;
         strip_quotes(val);
 
-        if      (!strcmp(key,"CFLAGS"))         strncpy(cfg->cflags,    val, sizeof(cfg->cflags)-1);
-        else if (!strcmp(key,"CXXFLAGS"))        strncpy(cfg->cxxflags,  val, sizeof(cfg->cxxflags)-1);
-        else if (!strcmp(key,"LDFLAGS"))         strncpy(cfg->ldflags,   val, sizeof(cfg->ldflags)-1);
-        else if (!strcmp(key,"MAKEFLAGS"))       strncpy(cfg->makeflags, val, sizeof(cfg->makeflags)-1);
-        else if (!strcmp(key,"CC"))              strncpy(cfg->cc,        val, sizeof(cfg->cc)-1);
-        else if (!strcmp(key,"CXX"))             strncpy(cfg->cxx,       val, sizeof(cfg->cxx)-1);
-        else if (!strcmp(key,"JOBS"))            cfg->jobs            = atoi(val);
-        else if (!strcmp(key,"BUILDDIR"))        strncpy(cfg->build_dir, val, sizeof(cfg->build_dir)-1);
-        else if (!strcmp(key,"PKGDEST"))         strncpy(cfg->pkg_dest,  val, sizeof(cfg->pkg_dest)-1);
-        else if (!strcmp(key,"SRCDEST"))         strncpy(cfg->src_dest,  val, sizeof(cfg->src_dest)-1);
-        else if (!strcmp(key,"COLOR"))           cfg->color           = parse_bool(val);
-        else if (!strcmp(key,"CONFIRM"))         cfg->confirm         = parse_bool(val);
-        else if (!strcmp(key,"KEEP_SRC"))        cfg->keep_src        = parse_bool(val);
-        else if (!strcmp(key,"KEEP_PKG"))        cfg->keep_pkg        = parse_bool(val);
-        else if (!strcmp(key,"CHECK_SPACE"))     cfg->check_space     = parse_bool(val);
-        else if (!strcmp(key,"PARALLEL_DL"))     cfg->parallel_dl     = parse_bool(val);
-        else if (!strcmp(key,"MAX_DL_THREADS"))  cfg->max_dl_threads  = atoi(val);
-        else if (!strcmp(key,"VERIFY_SIG"))      cfg->verify_sig      = parse_bool(val);
-        else if (!strcmp(key,"DOWNLOADER"))      strncpy(cfg->downloader, val, sizeof(cfg->downloader)-1);
-        else if (!strcmp(key,"DEFAULT_YES"))     cfg->default_yes     = parse_bool(val);
-        else if (!strcmp(key,"DEFAULT_STRICT"))  cfg->default_strict  = parse_bool(val);
-        else if (!strcmp(key,"RUN_CHECK"))       cfg->run_check       = parse_bool(val);
-        else if (!strcmp(key,"STRICT_BUILD"))    cfg->strict_build    = parse_bool(val);
-        else if (!strcmp(key,"CriticalPkg"))     add_pkg_list(cfg->critical_pkgs, &cfg->n_critical, val);
-        else if (!strcmp(key,"IgnorePkg"))       add_pkg_list(cfg->ignore_pkgs,   &cfg->n_ignore,   val);
-        else if (!strcmp(key,"LogDir"))          strncpy(cfg->log_dir,   val, sizeof(cfg->log_dir)-1);
-        else if (!strcmp(key,"FilesDir"))        strncpy(cfg->files_dir, val, sizeof(cfg->files_dir)-1);
+        if      (!strcmp(key,"CFLAGS"))        strncpy(cfg->cflags,    val, sizeof(cfg->cflags)-1);
+        else if (!strcmp(key,"CXXFLAGS"))       strncpy(cfg->cxxflags,  val, sizeof(cfg->cxxflags)-1);
+        else if (!strcmp(key,"LDFLAGS"))        strncpy(cfg->ldflags,   val, sizeof(cfg->ldflags)-1);
+        else if (!strcmp(key,"MAKEFLAGS"))      strncpy(cfg->makeflags, val, sizeof(cfg->makeflags)-1);
+        else if (!strcmp(key,"CC"))             strncpy(cfg->cc,        val, sizeof(cfg->cc)-1);
+        else if (!strcmp(key,"CXX"))            strncpy(cfg->cxx,       val, sizeof(cfg->cxx)-1);
+        else if (!strcmp(key,"JOBS"))           cfg->jobs            = atoi(val);
+        else if (!strcmp(key,"BUILDDIR"))       strncpy(cfg->build_dir, val, sizeof(cfg->build_dir)-1);
+        else if (!strcmp(key,"PKGDEST"))        strncpy(cfg->pkg_dest,  val, sizeof(cfg->pkg_dest)-1);
+        else if (!strcmp(key,"SRCDEST"))        strncpy(cfg->src_dest,  val, sizeof(cfg->src_dest)-1);
+        else if (!strcmp(key,"COLOR"))          cfg->color           = parse_bool(val);
+        else if (!strcmp(key,"KEEP_SRC"))       cfg->keep_src        = parse_bool(val);
+        else if (!strcmp(key,"KEEP_PKG"))       cfg->keep_pkg        = parse_bool(val);
+        else if (!strcmp(key,"CHECK_SPACE"))    cfg->check_space     = parse_bool(val);
+        else if (!strcmp(key,"PARALLEL_DL"))    cfg->parallel_dl     = parse_bool(val);
+        else if (!strcmp(key,"MAX_DL_THREADS")) cfg->max_dl_threads  = atoi(val);
+        else if (!strcmp(key,"VERIFY_SIG"))     cfg->verify_sig      = parse_bool(val);
+        else if (!strcmp(key,"DOWNLOADER"))     strncpy(cfg->downloader, val, sizeof(cfg->downloader)-1);
+        else if (!strcmp(key,"CriticalPkg"))    add_pkg_list(cfg->critical_pkgs, &cfg->n_critical, val);
+        else if (!strcmp(key,"IgnorePkg"))      add_pkg_list(cfg->ignore_pkgs,   &cfg->n_ignore,   val);
+        else if (!strcmp(key,"LogDir"))         strncpy(cfg->log_dir,   val, sizeof(cfg->log_dir)-1);
+        else if (!strcmp(key,"FilesDir"))       strncpy(cfg->files_dir, val, sizeof(cfg->files_dir)-1);
+        /* legacy keys silently ignored — behaviour now controlled by CLI flags */
     }
     fclose(f);
     if (cfg->max_dl_threads < 1)  cfg->max_dl_threads = 1;
