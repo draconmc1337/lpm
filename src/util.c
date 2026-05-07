@@ -4,6 +4,12 @@
 #include <sys/statvfs.h>
 #include <time.h>
 
+/* ── global variable definitions ─────────────────────────────────────── */
+LpmConfig g_cfg;
+int g_lock_fd  = -1;
+int g_verbose  = 0;
+int g_debug    = 0;
+
 /* ── die / warn ──────────────────────────────────────────────────────── */
 void die(const char *fmt, ...) {
     va_list ap;

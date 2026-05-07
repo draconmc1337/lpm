@@ -20,7 +20,7 @@ void lpm_config_defaults(LpmConfig *cfg) {
     strncpy(cfg->build_dir, "/var/cache/lpm", sizeof(cfg->build_dir)-1);
     strncpy(cfg->pkg_dest,  "/var/cache/lpm", sizeof(cfg->pkg_dest)-1);
     strncpy(cfg->src_dest,  "/var/cache/lpm", sizeof(cfg->src_dest)-1);
-    cfg->color = 1; cfg->confirm = 1;
+    cfg->color = 1;
     cfg->keep_src = 0; cfg->keep_pkg = 0;
     cfg->check_space = 1; cfg->parallel_dl = 1;
     cfg->max_dl_threads = 4; cfg->verify_sig = 0;
@@ -82,7 +82,6 @@ static int parse_bool(const char *val) {
 }
 
 static void add_pkg_list(char list[][64], int *count, const char *val) {
-    /* space/comma separated */
     char tmp[1024]; strncpy(tmp, val, sizeof(tmp)-1);
     char *tok = strtok(tmp, " ,");
     while (tok && *count < 256) {

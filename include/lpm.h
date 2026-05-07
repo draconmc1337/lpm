@@ -2,9 +2,18 @@
 #ifndef LPM_H
 #define LPM_H
 
+/* Feature test macros — must come before ANY system header */
+#ifndef _XOPEN_SOURCE
+#  define _XOPEN_SOURCE 700
+#endif
+#ifndef _DEFAULT_SOURCE
+#  define _DEFAULT_SOURCE 1
+#endif
+
 #include <dirent.h>
 #include <errno.h>
 #include <pthread.h>
+#include <signal.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -16,7 +25,7 @@
 #include <unistd.h>
 
 /* ── version ─────────────────────────────────────────────────────────── */
-#define LPM_VERSION "1.3.0-alpha"
+#define LPM_VERSION "2.0.0-alpha"
 #define LPM_LOCK_FILE "/var/lock/lpm.lock"
 #define LPM_DB_DIR "/var/lib/lpm/db"
 #define LPM_DB "/var/lib/lpm/db/installed"
@@ -46,15 +55,36 @@
 #define MAX_CMD 2048
 
 /* ── colors ──────────────────────────────────────────────────────────── */
-#define C_RESET "\033[0m"
-#define C_BOLD "\033[1m"
-#define C_RED "\033[1;31m"
-#define C_GREEN "\033[1;32m"
+#define C_RESET  "\033[0m"
+#define C_BOLD   "\033[1m"
+#define C_RED    "\033[1;31m"
+#define C_GREEN  "\033[1;32m"
 #define C_YELLOW "\033[1;33m"
-#define C_BLUE "\033[1;34m"
-#define C_PINK "\033[1;35m"
-#define C_CYAN "\033[1;36m"
-#define C_GRAY "\033[0;90m"
+#define C_BLUE   "\033[1;34m"
+#define C_PINK   "\033[1;35m"
+#define C_CYAN   "\033[1;36m"
+#define C_GRAY   "\033[0;90m"
+
+/* ── debug level (global, set from --debug=N or LPM_DEBUG env) ──────── */
+extern int g_debug;
+
+/* DBG(level, fmt, ...) — prints to stderr when g_debug >= level
+ *   level 1  [DEBUG]  user-facing: dep resolution, cache hit/miss, mirror
+ *   level 2  [DEBUG]  deep:        URLs, checksums, dep graph edges
+ *   level 3  [TRACE]  dev-only:    function entry/exit, db lookups
+ */
+#define DBG(level, fmt, ...) \
+    do { \
+        if (g_debug >= (level)) { \
+            if ((level) >= 3) \
+                fprintf(stderr, "\033[2m[TRACE] " fmt "\033[0m\n", ##__VA_ARGS__); \
+            else \
+                fprintf(stderr, "\033[2m[DEBUG] " fmt "\033[0m\n", ##__VA_ARGS__); \
+        } \
+    } while (0)
+
+#define TRACE(fmt, ...) \
+    DBG(3, "%s(): " fmt, __func__, ##__VA_ARGS__)
 
 /* ── enums ───────────────────────────────────────────────────────────── */
 typedef enum { PKG_TYPE_SOURCE = 0, PKG_TYPE_BINARY = 1 } PkgType;
@@ -155,33 +185,54 @@ typedef struct {
   int nfiles;
 } InstalledPkg;
 
-/* ── LpmFlags (CLI flags) ────────────────────────────────────────────── */
+/* ── LpmFlags (CLI flags) ────────────────────────────────────────────── *
+ * All runtime behavior is controlled here, NOT in lpm.conf.            *
+ * --no-confirm     skip all yes/no prompts                             *
+ * --strict         treat check() failure as fatal error                *
+ * --no-recommended skip recommend prompt entirely                      *
+ * --no-check       skip check() phase even if PKGBUILD has it          *
+ * --force          override dep/critical/conflict checks               *
+ * --debug=N        enable debug output (level 1/2/3)                   *
+ * ─────────────────────────────────────────────────────────────────────── */
 typedef struct {
-  int yes;        /* --yes: skip all confirmation prompts    */
-  int strict;     /* --strict: check() failure = hard block  */
-  int force;      /* --force: override dep/critical checks   */
-  int no_confirm; /* --no-confirm: non-interactive remove    */
-  int no_recommend; /* --no-recommend: skip optional recommends */
-  int no_check;     /* --no-check: skip check() phase */
+  int no_confirm;     /* --no-confirm          */
+  int strict;         /* --strict              */
+  int no_recommended; /* --no-recommended      */
+  int no_check;       /* --no-check            */
+  int force;          /* --force               */
+  int debug;          /* --debug=N  (1/2/3)    */
 } LpmFlags;
 
-/* ── LpmConfig ───────────────────────────────────────────────────────── */
+/* ── LpmConfig ───────────────────────────────────────────────────────── *
+ * Loaded from /etc/lpm/lpm.conf.                                        *
+ * Only build environment, paths, and package lists live here.           *
+ * Runtime behavior (confirm, strict, check...) is controlled via        *
+ * CLI flags (LpmFlags), not config file.                                *
+ * ─────────────────────────────────────────────────────────────────────── */
 typedef struct {
-  /* compiler/linker */
-  char cflags[512], cxxflags[512], ldflags[512], makeflags[256];
-  char cc[64], cxx[64];
+  /* compiler / linker */
+  char cflags[512];
+  char cxxflags[512];
+  char ldflags[512];
+  char makeflags[256];
+  char cc[64];
+  char cxx[64];
   int jobs;
+
   /* paths */
   char build_dir[LPM_PATH_MAX];
   char pkg_dest[LPM_PATH_MAX];
   char src_dest[LPM_PATH_MAX];
   char log_dir[256];
   char files_dir[256];
-  /* behavior toggles */
-  int color, confirm, keep_src, keep_pkg;
-  int check_space, parallel_dl, max_dl_threads, verify_sig;
-  int default_yes, default_strict, run_check, strict_build;
-  /* downloader */
+
+  /* output */
+  int color;
+
+  /* source / download */
+  int parallel_dl;
+  int max_dl_threads;
+  int verify_sig;
   char downloader[16];
   char profile[64];
   /* package lists */
@@ -215,10 +266,34 @@ typedef struct {
   int result;
 } FetchJob;
 
+/* ── PkgMeta — fast parser cache struct (pkgbuild_parser.c) ─────────── */
+#define LPM_META_CACHE_DIR "/var/lib/lpm/cache"
+#define LPM_META_MAGIC   0x4C504D43
+#define LPM_META_VERSION 2
+
+typedef struct __attribute__((packed)) {
+  uint32_t magic;
+  uint8_t  version;
+  time_t   pkgbuild_mtime;
+  char pkgname[LPM_NAME_MAX];
+  char pkgver[LPM_VER_MAX];
+  char pkgrel[16];
+  char description[512];
+  char license[128];
+  uint8_t ndepends, nrecommends, nmakedepends, nconflicts;
+  char depends[LPM_MAX_DEPS][LPM_NAME_MAX];
+  char recommends[LPM_MAX_DEPS][LPM_NAME_MAX];
+  char makedepends[LPM_MAX_DEPS][LPM_NAME_MAX];
+  char conflicts[LPM_MAX_DEPS][LPM_NAME_MAX];
+  uint8_t has_build, has_check, has_package, has_remove;
+} PkgMeta;
+
 /* ── globals ─────────────────────────────────────────────────────────── */
 extern LpmConfig g_cfg;
 extern int g_lock_fd;
 extern int g_verbose;
+extern int g_debug;
+extern volatile sig_atomic_t g_cancel;
 
 /* ── util.c ──────────────────────────────────────────────────────────── */
 void die(const char *fmt, ...);
@@ -247,15 +322,28 @@ int lpm_config_load(const char *path, LpmConfig *cfg);
 void lpm_config_defaults(LpmConfig *cfg);
 void lpm_config_dump(const LpmConfig *cfg);
 
-/* ── pkgbuild.c (old Pkg API) ────────────────────────────────────────── */
+/* ── pkgbuild_parser.c (fast C parser + binary cache) ───────────────── */
+int pkgbuild_parse_fast(const char *pbfile, PkgMeta *m);
+void pkgbuild_invalidate_cache(const char *pkgname);
+
+/* ── pkgbuild.c (old Pkg API — used for build execution only) ────────── */
 int pkgbuild_parse(const char *pbfile, Pkg *pkg);
 int dep_satisfied(const char *spec);
 char *reverse_deps(const char *target);
 
 /* ── dep.c ───────────────────────────────────────────────────────────── */
 void cmd_deptree(int argc, char **argv);
-int dep_resolve_queue(const char *pkgname, char out[][MAX_STR], int maxout);
+/* build_all=0: -S mode (skip installed)
+ * build_all=1: -Pb mode (collect all, including installed) */
+int dep_resolve_queue(const char *pkgname, char out[][MAX_STR], int maxout,
+                      int build_all);
+/* Collect N packages + toposort once — replaces loop of dep_resolve_queue()×N */
+int dep_resolve_queue_multi(char **pkgnames, int npkgs, char out[][MAX_STR],
+                            int maxout, int build_all);
+/* Invalidate in-process PkgMeta cache (call after lpm -Sy) */
+void dep_meta_cache_invalidate(void);
 void dep_set_folder(const char *pkgname, const char *folder);
+int dep_get_recommends(const char *pkgname, char out[][MAX_STR], int maxout);
 
 /* ── download.c ──────────────────────────────────────────────────────── */
 Downloader dl_detect(const char *override);
@@ -263,7 +351,7 @@ int dl_file(const char *url, const char *dest, const char *filename, int slot,
             int total);
 int dl_fetch_all(FetchJob *jobs, int njobs);
 
-/* ── checksum (stub — implement in checksum.c) ───────────────────────── */
+/* ── checksum.c ──────────────────────────────────────────────────────── */
 int cksum_verify(const char *path, const char *expected, CksumType type);
 
 /* ── build.c ─────────────────────────────────────────────────────────── */
@@ -277,8 +365,9 @@ void cmd_fetch(int argc, char **argv);
 void cmd_check(int argc, char **argv);
 void cmd_remove(int argc, char **argv);
 void cmd_update(int argc, char **argv);
+void cmd_suy(int argc, char **argv);
 
-/* ── merge.c (stub) ──────────────────────────────────────────────────── */
+/* ── merge.c ─────────────────────────────────────────────────────────── */
 int pkg_merge(Package *pkg, const char *root, Transaction *tx);
 
 /* ── db.c ────────────────────────────────────────────────────────────── */
@@ -303,6 +392,7 @@ int tx_add_install(Transaction *tx, Package *pkg);
 int tx_add_remove(Transaction *tx, Package *pkg);
 int tx_commit(Transaction *tx, const char *root);
 int tx_rollback(Transaction *tx, const char *root);
+void tx_record_file(Transaction *tx, const char *path);
 
 /* ── safety.c ────────────────────────────────────────────────────────── */
 int lpm_lock_acquire(void);
@@ -325,14 +415,30 @@ void cmd_orphans(int argc, char **argv);
 
 /* ── cache.c ─────────────────────────────────────────────────────────── */
 void cmd_rcc(int argc, char **argv);
+
+/* ── key.c (GPG keyring — kept from lpm.git) ─────────────────────────── */
 void cmd_key(int argc, char **argv);
 void cmd_profile(int argc, char **argv);
 void cmd_doctor(int argc, char **argv);
+
+/* ── lpkg.c — binary package format (.lpkg) ─────────────────────────── */
+void cmd_pack(int argc, char **argv);
+void cmd_pkginstall(int argc, char **argv);
+void cmd_pkginstall_dir(int argc, char **argv);
+void cmd_pkglist(int argc, char **argv);
+
+/* ── recommend.c ─────────────────────────────────────────────────────── */
+int lpm_prompt_recommends(const char *pkgname, const LpmFlags *flags,
+                          int (*install_fn)(const char *pkg));
+
+/* ── sync.c — lpm -Suy ──────────────────────────────────────────────── */
+/* (cmd_suy declared above in build.c section) */
 
 /* ── build.c extras ──────────────────────────────────────────────────── */
 int lpm_parse_flags(int argc, char **argv, LpmFlags *f, char **pkgs,
                     int maxpkgs);
 void pkg_log_path(const char *pkgname, char *out, size_t outsz);
+void check_remove_journal(void);
 
 /* ── config.c extras ─────────────────────────────────────────────────── */
 int lpm_config_is_critical(const LpmConfig *cfg, const char *pkgname);
