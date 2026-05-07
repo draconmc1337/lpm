@@ -3,7 +3,7 @@ CFLAGS  = -Wall -Wextra -O2 -Iinclude
 SRCS = src/main.c src/util.c src/db.c src/pkgbuild.c \
        src/build.c src/search.c src/cache.c src/dep.c \
        src/config.c src/download.c src/checksum.c \
-       src/transaction.c src/merge.c src/safety.c src/key.c
+       src/transaction.c src/merge.c src/safety.c src/key.c src/profile.c
 TARGET  = lpm
 LIBLLPM = libllpm.a
 LLPM_LIB_SRCS = src/libllpm/error.c src/libllpm/handle.c src/libllpm/repo.c src/libllpm/trans.c

@@ -19,16 +19,23 @@ static void usage(void) {
          "    lpm {-D --deps}     [options] [package(s)]\n"
          "    lpm {-Q --query}    [options] [package(s)]\n"
          "    lpm {-K --key}      <subcommand> [args]\n"
+         "    lpm profile         <list|set>\n"
+         "    lpm doctor          [--cpu]\n"
          "    lpm {-R --remove}   [options] <package(s)>\n"
          "    lpm {-S --sync}     [options] [package(s)]\n"
          "    lpm {-U --upgrade}  [options] [package(s)]\n"
          "\n"
-         "use 'lpm {-h --help}' with an operation for available options\n");
+         "use 'lpm {-h --help}' with an operation for available options\n"
+         "debug: --debug=1|2|3 or LPM_DEBUG=1|2|3\n");
+}
+
+static int parse_debug_level(const char *s) {
+  if (!s || s[0] < '1' || s[0] > '3' || s[1] != '\0') return -1;
+  return s[0] - '0';
 }
 
 static void usage_op(const char *op) {
-  if (!strcmp(op, "-S") || !strcmp(op, "-Sy") || !strcmp(op, "-Syu") ||
-      !strcmp(op, "--sync")) {
+  if ((op[0] == '-' && op[1] == 'S') || !strcmp(op, "--sync")) {
     printf("usage: lpm -S [options] <package(s)>\n"
            "sync options:\n"
            "  -S           install target package(s)\n"
@@ -57,6 +64,30 @@ static void usage_op(const char *op) {
 }
 
 int main(int argc, char **argv) {
+  char *env_dbg = getenv("LPM_DEBUG");
+  if (env_dbg && *env_dbg) {
+    int lvl = parse_debug_level(env_dbg);
+    if (lvl < 0) {
+      fprintf(stderr, C_RED "error: " C_RESET "invalid LPM_DEBUG='%s' (use 1..3)\n", env_dbg);
+      return 1;
+    }
+    g_verbose = lvl;
+  }
+
+  for (int i = 1; i < argc; i++) {
+    if (!strncmp(argv[i], "--debug=", 8)) {
+      int lvl = parse_debug_level(argv[i] + 8);
+      if (lvl < 0) {
+        fprintf(stderr, C_RED "error: " C_RESET "invalid --debug level (use 1..3)\n");
+        return 1;
+      }
+      g_verbose = lvl;
+      for (int j = i; j < argc - 1; j++) argv[j] = argv[j + 1];
+      argc--;
+      i--;
+    }
+  }
+
   if (argc < 2) {
     fprintf(stderr, C_RED "error: " C_RESET
                     "no operation specified (use -h for help)\n");
@@ -73,8 +104,10 @@ int main(int argc, char **argv) {
   int sub_argc = argc - 2;
   char **sub_argv = argv + 2;
 
-  if (!strcmp(cmd, "-Syu") || !strcmp(cmd, "--sync")) {
-    cmd = "-u";
+  if (!strcmp(cmd, "--sync")) {
+    cmd = "-S";
+  } else if (cmd[0] == '-' && cmd[1] == 'S') {
+    cmd = "-S";
   } else if (!strcmp(cmd, "--sync-only")) {
     cmd = "-S";
   } else if (!strcmp(cmd, "--query")) {
@@ -89,6 +122,10 @@ int main(int argc, char **argv) {
     cmd = "-V";
   } else if (!strcmp(cmd, "--key")) {
     cmd = "-K";
+  } else if (!strcmp(cmd, "profile")) {
+    cmd = "profile";
+  } else if (!strcmp(cmd, "doctor")) {
+    cmd = "doctor";
   }
 
   int needs_lock = strcmp(cmd, "-s") != 0 && strcmp(cmd, "-qi") != 0 &&
@@ -119,8 +156,6 @@ int main(int argc, char **argv) {
     cmd_sync(sub_argc, sub_argv);
   else if (!strcmp(cmd, "-bi"))
     cmd_local(sub_argc, sub_argv);
-  else if (!strcmp(cmd, "-Sy"))
-    cmd_fetch(sub_argc, sub_argv);
   else if (!strcmp(cmd, "-c"))
     cmd_check(sub_argc, sub_argv);
   else if (!strcmp(cmd, "-r") || !strcmp(cmd, "-R"))
@@ -141,6 +176,10 @@ int main(int argc, char **argv) {
     cmd_orphans(sub_argc, sub_argv);
   else if (!strcmp(cmd, "-K"))
     cmd_key(sub_argc, sub_argv);
+  else if (!strcmp(cmd, "profile"))
+    cmd_profile(sub_argc, sub_argv);
+  else if (!strcmp(cmd, "doctor"))
+    cmd_doctor(sub_argc, sub_argv);
   else if (!strcmp(cmd, "-V") || !strcmp(cmd, "-v"))
     printf("lpm %s\n", LPM_VERSION);
   else if (!strcmp(cmd, "-h") || !strcmp(cmd, "--help"))

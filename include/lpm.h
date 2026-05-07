@@ -183,6 +183,7 @@ typedef struct {
   int default_yes, default_strict, run_check, strict_build;
   /* downloader */
   char downloader[16];
+  char profile[64];
   /* package lists */
   char critical_pkgs[256][64];
   int n_critical;
@@ -325,6 +326,8 @@ void cmd_orphans(int argc, char **argv);
 /* ── cache.c ─────────────────────────────────────────────────────────── */
 void cmd_rcc(int argc, char **argv);
 void cmd_key(int argc, char **argv);
+void cmd_profile(int argc, char **argv);
+void cmd_doctor(int argc, char **argv);
 
 /* ── build.c extras ──────────────────────────────────────────────────── */
 int lpm_parse_flags(int argc, char **argv, LpmFlags *f, char **pkgs,

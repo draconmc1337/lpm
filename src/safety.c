@@ -156,12 +156,60 @@ int safety_check_file_conflicts(const char *pkgdir, const char *pkgname,
 int safety_check_conflicts(Package **pkgs, int n, const char *root) {
     (void)root;
     int found = 0;
+    enum { OP_ANY = 0, OP_EQ, OP_GE, OP_LE, OP_GT, OP_LT };
+
+    auto int vercmp_simple(const char *a, const char *b) {
+        const char *pa = a, *pb = b;
+        while (*pa || *pb) {
+            long va = 0, vb = 0;
+            while (*pa >= '0' && *pa <= '9') { va = va * 10 + (*pa - '0'); pa++; }
+            while (*pb >= '0' && *pb <= '9') { vb = vb * 10 + (*pb - '0'); pb++; }
+            if (va != vb) return (va > vb) ? 1 : -1;
+            while (*pa && *pa != '.' && *pa != '-') pa++;
+            while (*pb && *pb != '.' && *pb != '-') pb++;
+            if (*pa == '.' || *pa == '-') pa++;
+            if (*pb == '.' || *pb == '-') pb++;
+        }
+        return 0;
+    }
+
+    auto int conflict_match_installed(const char *spec) {
+        char name[LPM_NAME_MAX] = {0};
+        char ver[LPM_VER_MAX] = {0};
+        int op = OP_ANY;
+        const char *p = spec;
+        int ni = 0;
+        while (*p && *p != '<' && *p != '>' && *p != '=' && ni < (int)sizeof(name) - 1) {
+            name[ni++] = *p++;
+        }
+        name[ni] = '\0';
+        if (!name[0]) return 0;
+        if (p[0] == '>' && p[1] == '=') { op = OP_GE; p += 2; }
+        else if (p[0] == '<' && p[1] == '=') { op = OP_LE; p += 2; }
+        else if (p[0] == '>') { op = OP_GT; p += 1; }
+        else if (p[0] == '<') { op = OP_LT; p += 1; }
+        else if (p[0] == '=') { op = OP_EQ; p += 1; }
+        while (*p == ' ') p++;
+        snprintf(ver, sizeof(ver), "%s", p);
+
+        char *inst_ver = db_get_version(name);
+        if (!inst_ver) return 0;
+        if (op == OP_ANY) { free(inst_ver); return 1; }
+        int cmp = vercmp_simple(inst_ver, ver);
+        free(inst_ver);
+        if (op == OP_EQ) return cmp == 0;
+        if (op == OP_GE) return cmp >= 0;
+        if (op == OP_LE) return cmp <= 0;
+        if (op == OP_GT) return cmp > 0;
+        if (op == OP_LT) return cmp < 0;
+        return 0;
+    }
 
     for (int i = 0; i < n; i++) {
         Package *p = pkgs[i];
 
         for (int c = 0; c < p->nconflicts; c++) {
-            if (db_is_installed(p->conflicts[c])) {
+            if (conflict_match_installed(p->conflicts[c])) {
                 fprintf(stderr,
                     C_RED "error:" C_RESET
                     " %s conflicts with installed package %s\n",
