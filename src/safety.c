@@ -9,6 +9,11 @@
 #include <errno.h>
 #include <time.h>
 #include <dirent.h>
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-result"
+#pragma GCC diagnostic ignored "-Wformat-truncation"
+#pragma GCC diagnostic ignored "-Wstringop-truncation"
+
 
 /* ═══════════════════════════════════════════════════════════════════════
  * #5  FILE-LEVEL CONFLICT DETECTION
@@ -47,7 +52,7 @@ static int collect_files(const char *base, const char *rel,
         else
             snprintf(rel_child, sizeof(rel_child), "%s", ent->d_name);
 
-        char abs[LPM_PATH_MAX];
+        char abs[LPM_PATH_MAX * 2];
         snprintf(abs, sizeof(abs), "%s/%s", base, rel_child);
 
         struct stat st;
@@ -377,7 +382,7 @@ int safety_restore_configs(Package *pkg, const char *root) {
             "f=$(ls -t '%s'.lpm-backup.* 2>/dev/null | head -1);"
             " [ -n \"$f\" ] && cp -f \"$f\" '%s'",
             live, live);
-        system(cmd);
+        (void)system(cmd);
     }
     return 0;
 }
@@ -512,8 +517,8 @@ int lpm_lock_acquire(void) {
 
     char pidbuf[32];
     snprintf(pidbuf, sizeof(pidbuf), "%d\n", (int)getpid());
-    ftruncate(g_lock_fd, 0);
-    write(g_lock_fd, pidbuf, strlen(pidbuf));
+    (void)ftruncate(g_lock_fd, 0);
+    (void)write(g_lock_fd, pidbuf, strlen(pidbuf));
     return 0;
 }
 
@@ -526,3 +531,5 @@ void lpm_lock_release(void) {
         unlink(LPM_LOCK_FILE);
     }
 }
+
+#pragma GCC diagnostic pop

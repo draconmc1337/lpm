@@ -19,14 +19,11 @@ static void usage(void) {
          "    lpm {-D --deps}     [options] [package(s)]\n"
          "    lpm {-Q --query}    [options] [package(s)]\n"
          "    lpm {-K --key}      <subcommand> [args]\n"
-         "    lpm profile         <list|set>\n"
-         "    lpm doctor          [--cpu]\n"
+         "    lpm {-P --package}  <subcommand> [args]\n"
          "    lpm {-R --remove}   [options] <package(s)>\n"
          "    lpm {-S --sync}     [options] [package(s)]\n"
          "    lpm {-U --upgrade}  [options] [package(s)]\n"
-         "\n"
-         "use 'lpm {-h --help}' with an operation for available options\n"
-         "debug: --debug=1|2|3 or LPM_DEBUG=1|2|3\n");
+         "\n");
 }
 
 static int parse_debug_level(const char *s) {
@@ -35,6 +32,17 @@ static int parse_debug_level(const char *s) {
 }
 
 static void usage_op(const char *op) {
+  if (!strcmp(op, "-P") || !strcmp(op, "--package")) {
+    printf("usage: lpm -P<sub> [package(s)]\n"
+           "package subcommands:\n"
+           "  -Pb <pkg>              build then pack → .lpkg binary\n"
+           "  -Pi <pkg.lpkg|name>    install from .lpkg (path or bare name)\n"
+           "  -Pq [pkg.lpkg|name]    query cached .lpkg or show info\n"
+           "  -Pe <pkg.lpkg|name>    extract .lpkg into current dir (inspect)\n"
+           "  -Pv <pkg.lpkg|name>    verify .lpkg checksum + meta\n"
+           "  -Pr <pkg.lpkg|name>    remove cached .lpkg file\n");
+    return;
+  }
   if ((op[0] == '-' && op[1] == 'S') || !strcmp(op, "--sync")) {
     printf("usage: lpm -S [options] <package(s)>\n"
            "sync options:\n"
@@ -101,6 +109,27 @@ int main(int argc, char **argv) {
   }
   if (!strcmp(cmd, "--u")) cmd = "-u";
 
+  /* Detect repeated operation flag: lpm -S -S firefox, lpm -R -S pkg ...
+   * Any operation flag appearing again in sub_argv is an error. */
+  {
+    static const char *OP_LIST[] = {
+      "-S", "--sync", "-R", "--remove", "-Q", "--query",
+      "-D", "--database", "-U", "--upgrade", "-F", "--files",
+      "-Su", "-Syu", "-Sy", "-Si", "-bi", "--package",
+      NULL
+    };
+    for (int i = 2; i < argc; i++) {
+      for (int k = 0; OP_LIST[k]; k++) {
+        if (!strcmp(argv[i], OP_LIST[k])) {
+          fprintf(stderr,
+            C_RED "error:" C_RESET
+            " only one operation may be used at a time\n");
+          return 1;
+        }
+      }
+    }
+  }
+
   int sub_argc = argc - 2;
   char **sub_argv = argv + 2;
 
@@ -122,17 +151,16 @@ int main(int argc, char **argv) {
     cmd = "-V";
   } else if (!strcmp(cmd, "--key")) {
     cmd = "-K";
-  } else if (!strcmp(cmd, "profile")) {
-    cmd = "profile";
-  } else if (!strcmp(cmd, "doctor")) {
-    cmd = "doctor";
+  } else if (!strcmp(cmd, "--package")) {
+    cmd = "-P";
   }
 
   int needs_lock = strcmp(cmd, "-s") != 0 && strcmp(cmd, "-qi") != 0 &&
                    strcmp(cmd, "-Q") != 0 && strcmp(cmd, "-Qo") != 0 &&
                    strcmp(cmd, "-V") != 0 && strcmp(cmd, "-v") != 0 &&
                    strcmp(cmd, "-h") != 0 && strcmp(cmd, "--help") != 0 &&
-                   strcmp(cmd, "-D") != 0;
+                   strcmp(cmd, "-D") != 0 && strcmp(cmd, "-Pq") != 0 &&
+                   strcmp(cmd, "-Pv") != 0;
 
   if (needs_lock) {
     signal(SIGINT, sig_handler);
@@ -168,20 +196,44 @@ int main(int argc, char **argv) {
     cmd_search(sub_argc, sub_argv);
   else if (!strcmp(cmd, "-D"))
     cmd_deptree(sub_argc, sub_argv);
-  else if (!strcmp(cmd, "-qi"))
+  else if (!strcmp(cmd, "-qi") || !strcmp(cmd, "info"))
     cmd_info(sub_argc, sub_argv);
+  else if (!strcmp(cmd, "owns") || !strcmp(cmd, "-Qo"))
+    cmd_owns(sub_argc, sub_argv);
+  else if (!strcmp(cmd, "files") || !strcmp(cmd, "-Ql"))
+    cmd_files(sub_argc, sub_argv);
   else if (!strcmp(cmd, "-l") || !strcmp(cmd, "-Q"))
     cmd_list(sub_argc, sub_argv);
   else if (!strcmp(cmd, "-Qo"))
     cmd_orphans(sub_argc, sub_argv);
   else if (!strcmp(cmd, "-K"))
     cmd_key(sub_argc, sub_argv);
-  else if (!strcmp(cmd, "profile"))
-    cmd_profile(sub_argc, sub_argv);
-  else if (!strcmp(cmd, "doctor"))
-    cmd_doctor(sub_argc, sub_argv);
-  else if (!strcmp(cmd, "-V") || !strcmp(cmd, "-v"))
-    printf("lpm %s\n", LPM_VERSION);
+  /* ── -P / --package: binary package management ─────────────────────── */
+  else if (!strcmp(cmd, "-Pb"))
+    cmd_pack(sub_argc, sub_argv);
+  else if (!strcmp(cmd, "-Pi"))
+    cmd_pkginstall(sub_argc, sub_argv);
+  else if (!strcmp(cmd, "-Pq"))
+    cmd_pkglist(sub_argc, sub_argv);
+  else if (!strcmp(cmd, "-Pe"))
+    cmd_pkginstall_dir(sub_argc, sub_argv);
+  else if (!strcmp(cmd, "-Pv"))
+    cmd_pkgverify(sub_argc, sub_argv);
+  else if (!strcmp(cmd, "-Pr"))
+    cmd_pkgremove_file(sub_argc, sub_argv);
+  else if (cmd[0] == '-' && cmd[1] == 'P') {
+    /* catch unknown -Px subcommands */
+    fprintf(stderr,
+        C_RED "error:" C_RESET " unknown -P subcommand '%s'\n"
+        "use 'lpm -P --help' for available subcommands\n", cmd);
+    if (needs_lock) lpm_lock_release();
+    return 1;
+  }
+  else if (!strcmp(cmd, "-V") || !strcmp(cmd, "-v")) {
+    printf("lpm " LPM_VERSION " — libllpm 1.1.2-beta \n");
+    printf("Lotus Linux (musl/x86_64)\n");
+    printf("Copyright (C) Lotus Linux Project\n");
+  }
   else if (!strcmp(cmd, "-h") || !strcmp(cmd, "--help"))
     usage();
   else {

@@ -1,4 +1,9 @@
 #include "lpm.h"
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-result"
+#pragma GCC diagnostic ignored "-Wformat-truncation"
+#pragma GCC diagnostic ignored "-Wstringop-truncation"
+
 
 /* ── helpers ─────────────────────────────────────────────────────────────── */
 
@@ -33,7 +38,7 @@ static void bash_scalar(const char *pbfile, const char *varname, char *out,
   out[0] = '\0';
   if (!p)
     return;
-  fgets(out, (int)outsz, p);
+  (void)fgets(out, (int)outsz, p);
   out[strcspn(out, "\n")] = '\0';
   pclose(p);
 }
@@ -64,6 +69,8 @@ int pkgbuild_parse(const char *pbfile, Pkg *pkg) {
       bash_array(pbfile, "recommends", pkg->recommends, MAX_DEPS);
   pkg->nmakedepends =
       bash_array(pbfile, "makedepends", pkg->makedepends, MAX_DEPS);
+  pkg->nreplaces =
+      bash_array(pbfile, "replaces", pkg->replaces, MAX_DEPS);
 
   /* source is a scalar string, not array */
   bash_scalar(pbfile, "source", pkg->source[0], MAX_STR);
@@ -157,7 +164,7 @@ int dep_satisfied(const char *spec) {
 
 /* ── reverse_deps ────────────────────────────────────────────────────────── */
 char *reverse_deps(const char *target) {
-  static char result[4096];
+  static char result[LPM_NAME_MAX * 256];
   result[0] = '\0';
 
   FILE *db = fopen(LPM_DB, "r");
@@ -176,22 +183,26 @@ char *reverse_deps(const char *target) {
     if (strcmp(iname, target) == 0)
       continue;
 
-    char pbfile[1024];
+    char pbfile[LPM_PATH_MAX + LPM_NAME_MAX + 16];
     snprintf(pbfile, sizeof(pbfile), "%s/pkgbuild_%s", LPM_PKGBUILD_DIR, iname);
 
     char deps[MAX_DEPS][LPM_NAME_MAX];
     int n = bash_array(pbfile, "depends", deps, MAX_DEPS);
     for (int i = 0; i < n; i++) {
-      char depname[MAX_STR];
-      snprintf(depname, MAX_STR, "%s", deps[i]);
+      char depname[LPM_NAME_MAX];
+      strncpy(depname, deps[i], sizeof(depname) - 1);
+      depname[sizeof(depname) - 1] = '\0';
       /* strip operator */
       char *op = strpbrk(depname, "><=");
       if (op)
         *op = '\0';
       if (strcmp(depname, target) == 0) {
+        size_t rlen = strlen(result);
+        size_t rsz  = LPM_NAME_MAX * 256;
         if (result[0])
-          strncat(result, " ", sizeof(result) - strlen(result) - 1);
-        strncat(result, iname, sizeof(result) - strlen(result) - 1);
+          snprintf(result + rlen, rsz - rlen, " %s", iname);
+        else
+          snprintf(result, rsz, "%s", iname);
         break;
       }
     }
@@ -199,3 +210,5 @@ char *reverse_deps(const char *target) {
   fclose(db);
   return result;
 }
+
+#pragma GCC diagnostic pop

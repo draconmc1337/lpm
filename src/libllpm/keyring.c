@@ -23,6 +23,12 @@
 #include <unistd.h>
 #include <ctype.h>
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-truncation"
+#pragma GCC diagnostic ignored "-Wstringop-truncation"
+#pragma GCC diagnostic ignored "-Wunused-result"
+
+
 /* ── GnuPG homedir path ──────────────────────────────────────────────── */
 
 static void gnupg_dir(const llpm_handle_t *h, char *out, size_t sz) {
@@ -422,3 +428,5 @@ int llpm_keyring_delete(llpm_handle_t *h, const char *fingerprint) {
     h->last_err = LLPM_ERR_OK;
     return 0;
 }
+
+#pragma GCC diagnostic pop

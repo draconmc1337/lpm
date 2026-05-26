@@ -1,5 +1,1 @@
 src/src/
-
-# generated bundle artifacts
-/dist/lotus-p*-musl.zip
-/dist/lotus-p*.zip

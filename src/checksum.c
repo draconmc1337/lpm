@@ -1,5 +1,10 @@
 #include "lpm.h"
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-result"
+
+
+
 int cksum_verify(const char *path, const char *expected, CksumType type) {
     if (type == CKSUM_SKIP || !expected || !expected[0]) return 0;
 
@@ -16,7 +21,7 @@ int cksum_verify(const char *path, const char *expected, CksumType type) {
 
     FILE *p = popen(cmd, "r");
     if (!p) return -1;
-    fgets(actual, sizeof(actual), p);
+    (void)fgets(actual, sizeof(actual), p);
     pclose(p);
     actual[strcspn(actual, "\n")] = '\0';
 
@@ -29,3 +34,5 @@ int cksum_verify(const char *path, const char *expected, CksumType type) {
     }
     return 0;
 }
+
+#pragma GCC diagnostic pop

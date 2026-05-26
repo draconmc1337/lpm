@@ -2,9 +2,6 @@
 #include <ctype.h>
 #include <stdarg.h>
 
-LpmConfig g_cfg;
-int       g_verbose = 0;
-
 static int parse_bool(const char *val);
 static void add_pkg_list(char list[][64], int *count, const char *val);
 
@@ -95,9 +92,8 @@ int lpm_config_load(const char *path, LpmConfig *cfg) {
     FILE *f = fopen(path ? path : LPM_CONF_FILE, "r");
     if (!f) return 0;  /* defaults are fine */
 
-    char line[1024]; int lineno = 0;
+    char line[1024];
     while (fgets(line, sizeof(line), f)) {
-        lineno++;
         char *nl = strchr(line, '\n'); if (nl) *nl = '\0';
         char *p = line;
         while (isspace((unsigned char)*p)) p++;

@@ -90,16 +90,38 @@ void cmd_info(int argc, char **argv) {
         const char *inst_str = db_is_installed(argv[i])
             ? C_GREEN "Yes" C_RESET : C_YELLOW "No" C_RESET;
 
-        printf(C_BOLD "──────────────────────────────────────" C_RESET "\n");
-        printf("  " C_BOLD "%-14s" C_RESET " %s\n",        "Name",        pkg.pkgname);
-        printf("  " C_BOLD "%-14s" C_RESET " %s-%s\n",     "Version",     pkg.pkgver, pkg.pkgrel);
-        printf("  " C_BOLD "%-14s" C_RESET " %s\n",        "Installed",   inst_str);
-        printf("  " C_BOLD "%-14s" C_RESET " %s\n",        "Depends",     deps);
-        printf("  " C_BOLD "%-14s" C_RESET " %s\n",        "Recommends",  recs);
-        printf("  " C_BOLD "%-14s" C_RESET " %s\n",        "MakeDepends", makedeps);
-        printf("  " C_BOLD "%-14s" C_RESET " %s\n",        "Required by", rdeps_str[0] ? rdeps_str : "(none)");
-        printf("  " C_BOLD "%-14s" C_RESET " %s\n",        "PKGBUILD",    pbfile);
-        printf(C_BOLD "──────────────────────────────────────" C_RESET "\n\n");
+        /* ── load build metadata if available ── */
+        BuildMeta bm;
+        int has_bm = (buildmeta_load(argv[i], &bm) == 0);
+
+        printf(C_BOLD "  %s %s-%s" C_RESET "\n",
+               pkg.pkgname, pkg.pkgver, pkg.pkgrel);
+        printf("  %s\n\n", pkg.pkgname[0] ? "" : "");
+        printf("  " C_BOLD "%-16s" C_RESET " %s\n", "Installed", inst_str);
+        printf("  " C_BOLD "%-16s" C_RESET " %s\n", "Depends",     deps);
+        printf("  " C_BOLD "%-16s" C_RESET " %s\n", "Recommends",  recs);
+        printf("  " C_BOLD "%-16s" C_RESET " %s\n", "MakeDepends", makedeps);
+        printf("  " C_BOLD "%-16s" C_RESET " %s\n", "Required by",
+               rdeps_str[0] ? rdeps_str : "(none)");
+        printf("  " C_BOLD "%-16s" C_RESET " %s\n", "PKGBUILD", pbfile);
+
+        if (has_bm) {
+            printf("\n");
+            printf("  " C_BOLD "Build info\n" C_RESET);
+            printf("  " C_BOLD "%-16s" C_RESET " %s\n",
+                   "Built on",    bm.built_on[0]    ? bm.built_on    : "unknown");
+            printf("  " C_BOLD "%-16s" C_RESET " %s\n",
+                   "Compiler",    bm.compiler[0]    ? bm.compiler    : "unknown");
+            printf("  " C_BOLD "%-16s" C_RESET " %s\n",
+                   "libc",        bm.libc[0]        ? bm.libc        : "musl");
+            printf("  " C_BOLD "%-16s" C_RESET " %s\n",
+                   "Build flags", bm.build_flags[0] ? bm.build_flags : "(none)");
+            printf("  " C_BOLD "%-16s" C_RESET " %s\n",
+                   "Build date",  bm.build_date[0]  ? bm.build_date  : "unknown");
+            printf("  " C_BOLD "%-16s" C_RESET " " C_GRAY "%s" C_RESET "\n",
+                   "Build hash",  bm.build_hash[0]  ? bm.build_hash  : "(not available)");
+        }
+        printf("\n");
     }
 }
 
@@ -244,4 +266,45 @@ void cmd_orphans(int argc, char **argv) {
 
     free(needed);
     free(all);
+}
+
+/* ── cmd_owns ────────────────────────────────────────────────────────────── */
+void cmd_owns(int argc, char **argv) {
+    if (argc == 0) die("No path specified.\nUsage: lpm owns <path>");
+    for (int i = 0; i < argc; i++) {
+        /* normalise: resolve symlinks / relative paths */
+        char abs[LPM_PATH_MAX];
+        if (!realpath(argv[i], abs))
+            snprintf(abs, sizeof(abs), "%s", argv[i]);
+
+        char owner[LPM_NAME_MAX] = "";
+        if (db_query_owner(abs, owner, sizeof(owner)) == 0) {
+            /* also get version for pretty output */
+            char *ver = db_get_version(owner);
+            if (ver) {
+                printf("%s-%s\n", owner, ver);
+                free(ver);
+            } else {
+                printf("%s\n", owner);
+            }
+        } else {
+            fprintf(stderr, C_RED "error: " C_RESET
+                    "no package owns '%s'\n", abs);
+        }
+    }
+}
+
+/* ── cmd_files ───────────────────────────────────────────────────────────── */
+void cmd_files(int argc, char **argv) {
+    if (argc == 0) die("No package specified.\nUsage: lpm files <package>");
+    for (int i = 0; i < argc; i++) {
+        if (!db_is_installed(argv[i])) {
+            fprintf(stderr, C_YELLOW "warning: " C_RESET
+                    "'%s' is not installed\n", argv[i]);
+            continue;
+        }
+        if (argc > 1)
+            printf(C_BOLD "%s:\n" C_RESET, argv[i]);
+        db_list_files(argv[i]);
+    }
 }

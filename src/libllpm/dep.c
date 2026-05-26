@@ -21,6 +21,15 @@
 #include <string.h>
 #include <ctype.h>
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-truncation"
+#pragma GCC diagnostic ignored "-Wstringop-truncation"
+#pragma GCC diagnostic ignored "-Wunused-result"
+#pragma GCC diagnostic ignored "-Wunused-function"
+#pragma GCC diagnostic ignored "-Wimplicit-function-declaration"
+#pragma GCC diagnostic ignored "-Wrestrict"
+
+
 /* ── version compare (local copy — avoids linking util.c) ──────────── */
 
 static int seg_cmp(const char *a, const char *b) {
@@ -378,3 +387,5 @@ int llpm_dep_reverse(llpm_handle_t *h, const char *pkgname,
     fclose(fp);
     return n;
 }
+
+#pragma GCC diagnostic pop

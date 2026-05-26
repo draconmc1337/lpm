@@ -1,6 +1,11 @@
 #include "lpm.h"
 #include <pthread.h>
 #include <sys/ioctl.h>
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-result"
+#pragma GCC diagnostic ignored "-Wformat-truncation"
+#pragma GCC diagnostic ignored "-Wstringop-truncation"
+
 
 /* ── detect downloader ───────────────────────────────────────────────── */
 Downloader dl_detect(const char *override) {
@@ -104,7 +109,7 @@ static void *dl_worker(void *arg) {
     }
 
     /* use a temp file */
-    char part[LPM_PATH_MAX];
+    char part[LPM_PATH_MAX + 8];
     snprintf(part, sizeof(part), "%s.part", job->dest);
     remove(part);
 
@@ -173,7 +178,7 @@ static long probe_size(const char *url) {
     FILE *p = popen(cmd, "r");
     if (!p) return -1;
     long sz = -1;
-    fscanf(p, "%ld", &sz);
+    (void)fscanf(p, "%ld", &sz);
     pclose(p);
     return sz > 0 ? sz : -1;
 }
@@ -290,3 +295,5 @@ int dl_fetch_all(FetchJob *jobs, int njobs) {
     }
     return 0;
 }
+
+#pragma GCC diagnostic pop

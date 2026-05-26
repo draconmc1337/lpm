@@ -24,6 +24,11 @@
 #include <pthread.h>
 #include <sys/statvfs.h>
 #include <ctype.h>
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-result"
+#pragma GCC diagnostic ignored "-Wformat-truncation"
+#pragma GCC diagnostic ignored "-Wstringop-truncation"
+
 
 
 /* CHECK_CANCEL — same macro as in build.c, needed here too */
@@ -74,6 +79,7 @@ typedef struct {
     int  is_critical;
     long dl_size;
     long inst_size;
+    char replaces_old[LPM_NAME_MAX]; /* non-empty = rename from this name */
 } UpdateEntry;
 
 /* Per-thread state for parallel repo.db fetch */
@@ -300,7 +306,7 @@ void cmd_suy(int argc, char **argv) {
     /* cleanup temp dir */
     char rmcmd[LPM_PATH_MAX + 16];
     snprintf(rmcmd, sizeof(rmcmd), "rm -rf '%s'", db_dir);
-    system(rmcmd);
+    (void)system(rmcmd);
 
     if (total_entries == 0) {
         fprintf(stderr, C_RED "error:" C_RESET
@@ -388,6 +394,42 @@ void cmd_suy(int argc, char **argv) {
         }
     }
 
+    /* ── Phase 4b: scan repo for packages that replace installed ones ─
+     * e.g.  swww (installed) → awww (new pkg with replaces=(swww))
+     * We iterate all repo entries, parse their PKGBUILD for replaces=,
+     * and if a replacement target is installed but the new pkg is not,
+     * we queue it as a special "rename" upgrade entry.              */
+    for (int e = 0; e < total_entries && nupdate < 1024; e++) {
+        RepoEntry *re = &repo_entries[e];
+        if (db_is_installed(re->name)) continue; /* new pkg already here */
+        /* parse its PKGBUILD for replaces= */
+        char pbf[LPM_PATH_MAX + LPM_NAME_MAX + 16];
+        snprintf(pbf, sizeof(pbf), "%s/pkgbuild_%s",
+                 LPM_PKGBUILD_DIR, re->name);
+        PkgMeta meta;
+        memset(&meta, 0, sizeof(meta));
+        if (pkgbuild_parse_fast(pbf, &meta) != 0) continue;
+        for (int ri = 0; ri < meta.nreplaces; ri++) {
+            const char *old_name = meta.replaces[ri];
+            if (!db_is_installed(old_name)) continue;
+            if (lpm_config_is_ignored(&cfg, old_name)) continue;
+            /* old_name is installed, new name is not → rename upgrade */
+            char *old_ver = db_get_version(old_name);
+            UpdateEntry *u = &updates[nupdate++];
+            snprintf(u->name,         LPM_NAME_MAX,      "%s", re->name);
+            snprintf(u->inst_ver,     LPM_VER_MAX + 15,  "%s",
+                     old_ver ? old_ver : "?");
+            snprintf(u->new_ver,      LPM_VER_MAX + 15,  "%s", re->version);
+            snprintf(u->repo,         15,                "%s", re->repo);
+            snprintf(u->replaces_old, LPM_NAME_MAX,      "%s", old_name);
+            u->is_binary   = re->is_binary;
+            u->is_critical = lpm_config_is_critical(&cfg, old_name);
+            u->dl_size     = re->dl_size;
+            u->inst_size   = re->inst_size;
+            if (old_ver) free(old_ver);
+        }
+    }
+
     /* ── Phase 5: display ─────────────────────────────────────────── */
     if (nupdate == 0) {
         printf(C_CYAN "::" C_RESET " " C_GREEN
@@ -404,8 +446,7 @@ void cmd_suy(int argc, char **argv) {
     /* column header */
     printf("  %-8s  %-24s  %-16s  %-16s  %-12s  %s\n",
            "Type", "Package", "Installed", "New", "Download", "Install");
-    printf("  %-8s  %-24s  %-16s  %-16s  %-12s  %s\n",
-           "------", "-------", "---------", "---", "--------", "-------");
+
 
     long total_dl   = 0;
     long total_inst = 0;  /* binary installs only */
@@ -435,14 +476,21 @@ void cmd_suy(int argc, char **argv) {
             snprintf(crit_tag, sizeof(crit_tag),
                      " " C_RED "[CRITICAL]" C_RESET);
 
-        printf("  %-18s  %-24s  %-16s  %-16s  %-12s  %s%s\n",
+        /* rename indicator: "awww (replaces swww)" */
+        char rename_tag[LPM_NAME_MAX + 16] = "";
+        if (u->replaces_old[0])
+            snprintf(rename_tag, sizeof(rename_tag),
+                     C_GRAY " (replaces %s)" C_RESET, u->replaces_old);
+
+        printf("  %-18s  %-24s  %-16s  %-16s  %-12s  %s%s%s\n",
                type_str,
                u->name,
                u->inst_ver,
                u->new_ver,
                dl_str,
                inst_str,
-               crit_tag);
+               crit_tag,
+               rename_tag);
 
         if (u->dl_size > 0)   total_dl   += u->dl_size;
         if (u->is_binary)     total_inst += u->inst_size;
@@ -462,13 +510,27 @@ void cmd_suy(int argc, char **argv) {
         fmt_size(free_bytes, free_str, sizeof(free_str));
 
         printf("\n");
+        /* ── pacman-style Summary (no === lines) ───────────── */
+        printf(C_BOLD "  Summary\n" C_RESET);
+        /* count renames separately for summary */
+        int nrenames = 0;
+        for (int i = 0; i < nupdate; i++)
+            if (updates[i].replaces_old[0]) nrenames++;
+        printf(C_BOLD "  Upgrade" C_RESET "   %d package(s)\n",
+               nupdate - nrenames);
+        if (nrenames)
+            printf(C_BOLD "  Rename " C_RESET
+                   "   %d package(s) " C_GRAY
+                   "(package name changed in repo)" C_RESET "\n",
+                   nrenames);
         if (nignored)
-            printf(C_GRAY "  (%d package(s) in IgnorePkg — skipped)\n"
+            printf(C_GRAY "  Skipped   %d package(s) [IgnorePkg]\n"
                    C_RESET, nignored);
-        printf("  Download:          %s\n",  dl_str);
-        printf("  Disk after update: +%s",   inst_str);
+        printf("\n");
+        printf("  Total download size:   " C_CYAN "%s" C_RESET "\n", dl_str);
+        printf("  Net disk space change: " C_GREEN "+%s" C_RESET, inst_str);
         if (total_src_heuristic > 0)
-            printf(C_GRAY "  (src: heuristic ×%d)" C_RESET, SRC_SIZE_MUL);
+            printf(C_GRAY " (src heuristic ×%d)" C_RESET, SRC_SIZE_MUL);
         printf("\n");
 
         DBG(1, "disk check: need %ld bytes, free %ld bytes", needed, free_bytes);
@@ -560,7 +622,7 @@ void cmd_suy(int argc, char **argv) {
         char cache[LPM_PATH_MAX], rmcache[LPM_PATH_MAX + 16];
         snprintf(cache,   sizeof(cache),   "%s/%s", LPM_BUILD_DIR, u->name);
         snprintf(rmcache, sizeof(rmcache), "rm -rf '%s'", cache);
-        system(rmcache);
+        (void)system(rmcache);
 
         /* delegate to cmd_sync which handles build + merge + db */
         char *pair[1] = { u->name };
@@ -583,3 +645,5 @@ suy_cleanup:
     if (targets_alloc)
         for (int i = 0; i < ntargets; i++) free(targets[i]);
 }
+
+#pragma GCC diagnostic pop

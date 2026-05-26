@@ -2,6 +2,11 @@
 #include <ctype.h>
 #include <stdarg.h>
 #include <time.h>
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-result"
+#pragma GCC diagnostic ignored "-Wformat-truncation"
+#pragma GCC diagnostic ignored "-Wstringop-truncation"
+
 
 /* ══════════════════════════════════════════════════════════════════════
  * build.c — Build, sync, remove, and update commands for lpm
@@ -71,8 +76,23 @@ int lpm_parse_flags(int argc, char **argv, LpmFlags *f, char **pkgs,
     if (lvl >= 1 && lvl <= 3) { f->debug = lvl; g_debug = lvl; }
   }
 
+  /* Operation flags must never be treated as package names.
+   * Handles accidental repetition like: lpm -S -S firefox
+   * sub_argv would be ["-S", "firefox"] — discard the extra -S. */
+  static const char *OP_FLAGS[] = {
+    "-S", "--sync", "-R", "--remove", "-Q", "--query",
+    "-D", "--database", "-U", "--upgrade", "-F", "--files",
+    NULL
+  };
+
   int n = 0;
   for (int i = 0; i < argc; i++) {
+    /* silently skip operation flags that leaked into sub_argv */
+    int is_op = 0;
+    for (int k = 0; OP_FLAGS[k]; k++)
+      if (!strcmp(argv[i], OP_FLAGS[k])) { is_op = 1; break; }
+    if (is_op) continue;
+
     if      (!strcmp(argv[i], "--force"))          f->force          = 1;
     else if (!strcmp(argv[i], "--no-confirm"))     f->no_confirm     = 1;
     else if (!strcmp(argv[i], "--strict"))         f->strict         = 1;
@@ -83,12 +103,13 @@ int lpm_parse_flags(int argc, char **argv, LpmFlags *f, char **pkgs,
       if (lvl < 1) lvl = 1;
       if (lvl > 3) lvl = 3;
       f->debug = lvl;
-      g_debug  = lvl;   /* set global so DBG() works everywhere */
+      g_debug  = lvl;
     }
     else if (!strcmp(argv[i], "--debug")) {
-      /* bare --debug without =N defaults to level 1 */
       f->debug = 1; g_debug = 1;
     }
+    else if (!strcmp(argv[i], "--dry-run") || !strcmp(argv[i], "-n"))
+      f->dry_run = 1;
     else if (n < maxpkgs) pkgs[n++] = argv[i];
   }
 
@@ -110,7 +131,7 @@ int lpm_parse_flags(int argc, char **argv, LpmFlags *f, char **pkgs,
 
 static int fetch_url(const char *url, const char *dest) {
   DBG(2, "fetch_url: %s", url);
-  char part[MAX_STR];
+  char part[MAX_STR + 8];
   snprintf(part, sizeof(part), "%s.part", dest);
 
   /* extract hostname for DNS fallback check */
@@ -404,7 +425,7 @@ static char *pkgbuild_to_bash(const char *pbfile) {
             char *ke = eq - 1;
             while (ke > p && (*ke == ' ' || *ke == '\t')) ke--;
             int kl = (int)(ke - p + 1);
-            if (kl > 0 && kl < 63) { strncpy(key, p, kl); key[kl] = '\0'; }
+            if (kl > 0 && kl < 63) { memcpy(key, p, (size_t)kl); key[kl] = '\0'; }
 
             char *val = eq + 1;
             while (*val == ' ') val++;
@@ -495,7 +516,7 @@ static void do_build_install(Pkg *pkg, const char *pbfile_orig, LpmConfig *cfg,
     if (!fname) continue;
     fname++;
 
-    char srcpath[MAX_STR];
+    char srcpath[MAX_STR * 2];
     snprintf(srcpath, sizeof(srcpath), "%s/%s", ws, fname);
 
     struct stat sst;
@@ -570,7 +591,7 @@ static void do_build_install(Pkg *pkg, const char *pbfile_orig, LpmConfig *cfg,
     int rc = run(check_cmd);
 
     /* always show the last 40 lines of the log after check */
-    char tail[MAX_STR];
+    char tail[MAX_STR + 32];
     snprintf(tail, sizeof(tail), "tail -40 '%s'", pkg_log);
     run(tail);
 
@@ -595,9 +616,9 @@ static void do_build_install(Pkg *pkg, const char *pbfile_orig, LpmConfig *cfg,
   if (g_cancel) { PBCLEAN(); return; }
 
   /* run package() to populate pkgdir (the staging directory) */
-  char pkgdir[MAX_STR];
+  char pkgdir[MAX_STR + 8];
   snprintf(pkgdir, sizeof(pkgdir), "%s/pkg", ws);
-  char mk_cmd[MAX_STR];
+  char mk_cmd[MAX_STR * 2 + 64];
   snprintf(mk_cmd, sizeof(mk_cmd), "rm -rf '%s' && mkdir -p '%s'", pkgdir, pkgdir);
   run(mk_cmd);
 
@@ -640,13 +661,36 @@ static void do_build_install(Pkg *pkg, const char *pbfile_orig, LpmConfig *cfg,
   /* build a Package struct for the transaction layer */
   Package mpkg;
   memset(&mpkg, 0, sizeof(mpkg));
-  strncpy(mpkg.name,    pkg->pkgname, LPM_NAME_MAX - 1);
-  strncpy(mpkg.version, pkg->pkgver,  LPM_VER_MAX  - 1);
-  strncpy(mpkg.release, pkg->pkgrel,  15);
-  strncpy(mpkg.pkg_dir, pkgdir,       LPM_PATH_MAX - 1);
+  snprintf(mpkg.name,    LPM_NAME_MAX,  "%s", pkg->pkgname);
+  snprintf(mpkg.version, LPM_VER_MAX,   "%s", pkg->pkgver);
+  snprintf(mpkg.release, 16,            "%s", pkg->pkgrel);
+  snprintf(mpkg.pkg_dir, LPM_PATH_MAX,  "%s", pkgdir);
   mpkg.type   = PKG_TYPE_SOURCE;
   mpkg.reason = REASON_EXPLICIT;
   mpkg.state  = PKG_STATE_STAGED;
+
+  /* ── replaces= handling ─────────────────────────────────────────
+   * If this package declares replaces=(oldpkg ...) and the old
+   * package is currently installed, auto-remove it first so the
+   * new name takes over cleanly.  Print a clear notice so the user
+   * knows why a package they never asked to remove disappeared.    */
+  for (int ri = 0; ri < pkg->nreplaces; ri++) {
+    const char *old_name = pkg->replaces[ri];
+    if (!db_is_installed(old_name)) continue;
+    char *old_ver = db_get_version(old_name);
+    printf(C_CYAN "  ->" C_RESET
+           " " C_BOLD "%s" C_RESET
+           " replaces " C_YELLOW "%s" C_RESET,
+           pkg->pkgname, old_name);
+    if (old_ver) { printf(" (%s)", old_ver); free(old_ver); }
+    printf("\n");
+    lpm_log("replaces: %s supersedes %s", pkg->pkgname, old_name);
+    /* remove the old package from db + filesystem */
+    char rm_cmd[MAX_CMD];
+    snprintf(rm_cmd, sizeof(rm_cmd),
+             "lpm -R --no-confirm \"%s\" 2>/dev/null || true", old_name);
+    (void)system(rm_cmd);
+  }
 
   Transaction *tx = tx_new();
   if (!tx) {
@@ -685,9 +729,20 @@ static void do_build_install(Pkg *pkg, const char *pbfile_orig, LpmConfig *cfg,
   lpm_log("Installed %s %s-%s (build time: %lds)",
           pkg->pkgname, pkg->pkgver, pkg->pkgrel, elapsed);
 
+  /* ── save reproducible build metadata ────────────────────────── */
+  {
+    PkgMeta fast_m;
+    memset(&fast_m, 0, sizeof(fast_m));
+    pkgbuild_parse_fast(pbfile_orig, &fast_m);
+    BuildMeta bm;
+    buildmeta_collect(pkg->pkgname, pkg->pkgver, pkg->pkgrel,
+                      fast_m.is_binary, mpkg.pkg_dir, &bm);
+    buildmeta_save(pkg->pkgname, &bm);
+  }
+
   /* clean up extracted sources if keep_src is not set */
   if (!cfg->keep_src) {
-    char src_path[MAX_STR];
+    char src_path[MAX_STR + 8];
     snprintf(src_path, sizeof(src_path), "%s/src", ws);
     util_rmrf(src_path);
   }
@@ -707,29 +762,76 @@ static void do_build_install(Pkg *pkg, const char *pbfile_orig, LpmConfig *cfg,
 static const char *FOLDERS[] = { "base", "extra", "lotus" };
 #define NFOLDERS 3
 
-static int fetch_pkgbuild(const char *name) {
-  char dest[MAX_STR];
-  snprintf(dest, sizeof(dest), "%s/pkgbuild_%s", LPM_PKGBUILD_DIR, name);
-  printf(C_CYAN "::" C_RESET " Fetching pkgbuild_%s...\n", name);
-
+/*
+ * pkg_exists_in_repo — HTTP HEAD check across all repo folders.
+ *
+ * Returns the folder index (0/1/2) where the package was found,
+ * or -1 if it does not exist in any folder.
+ *
+ * Uses a single HEAD request per folder (no download, no retry).
+ * wget: --spider  curl: -I --fail
+ * Both suppress all output; only the exit code is used.
+ */
+static int pkg_exists_in_repo(const char *name) {
   for (int f = 0; f < NFOLDERS; f++) {
     char url[MAX_STR];
-    snprintf(url, sizeof(url), "%s/%s/pkgbuild_%s", REPO_BASE, FOLDERS[f], name);
+    snprintf(url, sizeof(url), "%s/%s/pkgbuild_%s",
+             REPO_BASE, FOLDERS[f], name);
 
-    if (fetch_url(url, dest) == 0) {
-      struct stat st;
-      if (stat(dest, &st) == 0 && st.st_size > 32) {
-        DBG(1, "selected repo [%s] for pkgbuild_%s", FOLDERS[f], name);
-        printf(C_GREEN "  ->" C_RESET " Found in " C_CYAN "[%s]" C_RESET "\n",
-               FOLDERS[f]);
-        lpm_log("Fetched pkgbuild_%s from %s/%s", name, REPO_BASE, FOLDERS[f]);
-        pkgbuild_invalidate_cache(name); /* invalidate disk metadata cache */
-        dep_meta_cache_invalidate();     /* invalidate in-process PkgMeta cache */
-        return 0;
-      }
+    /* try wget --spider first, then curl -I --fail */
+    char cmd[MAX_CMD];
+    snprintf(cmd, sizeof(cmd),
+      "wget -q --spider --timeout=10 --tries=1 '%s' 2>/dev/null"
+      " || curl -s -I --fail --connect-timeout 10 --max-time 15 '%s'"
+      "    -o /dev/null 2>/dev/null",
+      url, url);
+
+    DBG(2, "HEAD check [%s]: %s", FOLDERS[f], url);
+
+    if (system(cmd) == 0) {
+      DBG(1, "found pkgbuild_%s in repo [%s]", name, FOLDERS[f]);
+      return f;
     }
-    remove(dest);
   }
+  return -1;
+}
+
+static int fetch_pkgbuild(const char *name) {
+  /* ── Step 1: silent existence check (HEAD, no retry, no noise) ── */
+  int folder = pkg_exists_in_repo(name);
+  if (folder < 0) {
+    /* Package does not exist in any repo folder — bail immediately */
+    return -1;
+  }
+
+  /* ── Step 2: package exists, now actually download it ─────────── */
+  char dest[MAX_STR];
+  snprintf(dest, sizeof(dest), "%s/pkgbuild_%s", LPM_PKGBUILD_DIR, name);
+
+  /* Ensure destination directory exists before fetch_url writes .part */
+  util_mkdirp(LPM_PKGBUILD_DIR, 0755);
+
+  printf(C_CYAN "::" C_RESET " Fetching pkgbuild_%s...\n", name);
+
+  char url[MAX_STR];
+  snprintf(url, sizeof(url), "%s/%s/pkgbuild_%s",
+           REPO_BASE, FOLDERS[folder], name);
+
+  if (fetch_url(url, dest) == 0) {
+    struct stat st;
+    if (stat(dest, &st) == 0 && st.st_size > 32) {
+      DBG(1, "selected repo [%s] for pkgbuild_%s", FOLDERS[folder], name);
+      printf(C_GREEN "  ->" C_RESET " Found in " C_CYAN "[%s]" C_RESET "\n",
+             FOLDERS[folder]);
+      lpm_log("Fetched pkgbuild_%s from %s/%s",
+              name, REPO_BASE, FOLDERS[folder]);
+      pkgbuild_invalidate_cache(name);
+      dep_meta_cache_invalidate();
+      return 0;
+    }
+  }
+
+  remove(dest);
   return -1;
 }
 
@@ -769,7 +871,7 @@ static int build_queue(char **pkgs, int npkgs, char queue[][MAX_STR], int maxq) 
 
   /* fetch any PKGBUILDs that are missing from disk */
   for (int j = 0; j < nqueue; j++) {
-    char pbf[MAX_STR];
+    char pbf[LPM_PATH_MAX + LPM_NAME_MAX + 16];
     snprintf(pbf, sizeof(pbf), "%s/pkgbuild_%s", LPM_PKGBUILD_DIR, queue[j]);
     struct stat pbst;
     if (stat(pbf, &pbst) != 0)
@@ -797,7 +899,7 @@ void cmd_local(int argc, char **argv) {
 
   /* verify all requested PKGBUILDs exist before doing any work */
   for (int i = 0; i < npkgs; i++) {
-    char pbfile[MAX_STR];
+    char pbfile[LPM_PATH_MAX + LPM_NAME_MAX + 16];
     snprintf(pbfile, sizeof(pbfile), "%s/pkgbuild_%s", LPM_PKGBUILD_DIR, pkgs[i]);
     struct stat st;
     if (stat(pbfile, &st) != 0)
@@ -828,7 +930,7 @@ void cmd_local(int argc, char **argv) {
 
   for (int qi = 0; qi < nqueue; qi++) {
     CHECK_CANCEL(build_done);
-    char pbfile[MAX_STR];
+    char pbfile[LPM_PATH_MAX + LPM_NAME_MAX + 16];
     snprintf(pbfile, sizeof(pbfile), "%s/pkgbuild_%s", LPM_PKGBUILD_DIR, queue[qi]);
     Pkg pkg;
     if (pkgbuild_parse(pbfile, &pkg) != 0) {
@@ -864,63 +966,207 @@ void cmd_sync(int argc, char **argv) {
   if (npkgs == 0)
     die("No package specified.\nUsage: lpm -S <package>");
 
-  /* fetch PKGBUILDs for explicitly requested packages */
-  for (int i = 0; i < npkgs; i++)
-    if (fetch_pkgbuild(pkgs[i]) != 0)
-      die("pkgbuild_%s not found in repo.", pkgs[i]);
+  /* ── --dry-run: preview, no side effects ── */
+  if (flags.dry_run) {
+    DryRun dr;
+    dryrun_build(pkgs, npkgs, &dr);
+    dryrun_print(&dr);
+    return;
+  }
 
+  /* ══════════════════════════════════════════════════════════════════
+   * STEP 1: Validate — ALL targets must exist in repo before anything
+   * "error: target not found: <pkg>" and abort if any missing.
+   * ══════════════════════════════════════════════════════════════════ */
+  {
+    int bad = 0;
+    for (int i = 0; i < npkgs; i++) {
+      if (fetch_pkgbuild(pkgs[i]) != 0) {
+        fprintf(stderr, C_RED "error:" C_RESET " target not found: %s\n", pkgs[i]);
+        bad++;
+      }
+    }
+    if (bad > 0) exit(1);
+  }
+
+  /* ══════════════════════════════════════════════════════════════════
+   * STEP 2: Resolve full dep queue (topo-sorted, skip installed)
+   * Also fetch PKGBUILDs for every dep we don't have locally yet.
+   * ══════════════════════════════════════════════════════════════════ */
   char queue[256][MAX_STR];
   int nqueue = build_queue(pkgs, npkgs, queue, 256);
 
-  cmd_deptree(npkgs, pkgs);
+  /* fetch missing dep PKGBUILDs */
+  for (int qi = 0; qi < nqueue; qi++) {
+    if (db_is_installed(queue[qi])) continue;
+    char pbf[LPM_PATH_MAX + LPM_NAME_MAX + 16];
+    snprintf(pbf, sizeof(pbf), "%s/pkgbuild_%s", LPM_PKGBUILD_DIR, queue[qi]);
+    struct stat st;
+    if (stat(pbf, &st) != 0)
+      fetch_pkgbuild(queue[qi]);
+  }
 
-  if (nqueue > 0) {
-    printf(C_CYAN "::" C_RESET " Will build " C_BOLD "%d" C_RESET " package(s):\n",
-           nqueue);
-    for (int i = 0; i < nqueue; i++)
-      printf("    " C_CYAN "%d." C_RESET " %s\n", i + 1, queue[i]);
+  /* ══════════════════════════════════════════════════════════════════
+   * STEP 3: Show transaction summary
+   *   Packages (N):
+   *     dep1  dep2  firefox
+   *
+   *   Recommended packages:
+   *     ffmpeg - Multimedia codec support
+   *     ...
+   *   Would you like to install recommended packages? [Y/n]
+   * ══════════════════════════════════════════════════════════════════ */
+  if (nqueue == 0) {
+    printf(C_GREEN "::" C_RESET " Nothing to do.\n");
+    return;
+  }
+
+  /* count skippable (already installed) */
+  int n_new = 0;
+  for (int i = 0; i < nqueue; i++)
+    if (!db_is_installed(queue[i])) n_new++;
+
+  printf("\n");
+  printf(C_BOLD "  Packages (%d):" C_RESET "\n  ", n_new);
+  int col = 2;
+  for (int i = 0; i < nqueue; i++) {
+    if (db_is_installed(queue[i])) continue;
+    int w = (int)strlen(queue[i]) + 2;
+    if (col + w > 72) { printf("\n  "); col = 2; }
+    printf(C_CYAN "%s" C_RESET "  ", queue[i]);
+    col += w;
+  }
+  printf("\n\n");
+
+  /* ── collect recommends from ALL packages in queue ── */
+  char rec_names[64][LPM_NAME_MAX];
+  char rec_descs[64][512];
+  int  nrec = 0;
+
+  if (!flags.no_recommended) {
+    for (int qi = 0; qi < nqueue && nrec < 64; qi++) {
+      if (db_is_installed(queue[qi])) continue;
+      char rec_tmp[LPM_MAX_DEPS][MAX_STR];
+      int  nr = dep_get_recommends(queue[qi], rec_tmp, LPM_MAX_DEPS);
+      for (int r = 0; r < nr && nrec < 64; r++) {
+        /* skip if already installed or already in list */
+        if (db_is_installed(rec_tmp[r])) continue;
+        int dup = 0;
+        for (int k = 0; k < nrec; k++)
+          if (!strcmp(rec_names[k], rec_tmp[r])) { dup = 1; break; }
+        if (dup) continue;
+
+        snprintf(rec_names[nrec], LPM_NAME_MAX, "%s", rec_tmp[r]);
+
+        /* fetch description from PKGBUILD */
+        rec_descs[nrec][0] = '\0';
+        char pbf[LPM_PATH_MAX + LPM_NAME_MAX + 16];
+        snprintf(pbf, sizeof(pbf), "%s/pkgbuild_%s",
+                 LPM_PKGBUILD_DIR, rec_tmp[r]);
+        PkgMeta rm; memset(&rm, 0, sizeof(rm));
+        if (pkgbuild_parse_fast(pbf, &rm) == 0 && rm.description[0])
+          snprintf(rec_descs[nrec], 512, "%s", rm.description);
+
+        nrec++;
+      }
+    }
+  }
+
+  /* display recommends and ask once */
+  int install_recommends = 0;
+  if (nrec > 0) {
+    printf(C_BOLD "  Recommended package(s):" C_RESET "\n");
+    for (int r = 0; r < nrec; r++) {
+      if (rec_descs[r][0])
+        printf("    " C_BOLD "%s" C_RESET " - %s\n",
+               rec_names[r], rec_descs[r]);
+      else
+        printf("    " C_BOLD "%s" C_RESET "\n", rec_names[r]);
+    }
+    printf("\n");
+
+    if (flags.no_confirm)
+      install_recommends = 1;
+    else
+      install_recommends = confirm(
+        "  Would you like to install these recommended packages? ["
+        C_GREEN "Y" C_RESET "/" C_RED "n" C_RESET "] ");
     printf("\n");
   }
 
-  if (!flags.no_confirm)
-    if (!confirm(C_CYAN "::" C_RESET " Proceed with build? [" C_GREEN "Y" C_RESET "/" C_RED "n" C_RESET "] ")) {
+  /* final confirm */
+  if (!flags.no_confirm) {
+    if (!confirm(C_CYAN "::" C_RESET " Proceed with installation? ["
+                 C_GREEN "Y" C_RESET "/" C_RED "n" C_RESET "] ")) {
       printf(C_YELLOW "Operation cancelled." C_RESET "\n");
       return;
     }
+  }
 
-  /* fetch any dep PKGBUILDs that build_queue didn't already pull */
-  for (int qi = 0; qi < nqueue; qi++) {
-    CHECK_CANCEL(sync_done);
-    if (db_is_installed(queue[qi])) continue;
-    char pbf[MAX_STR];
-    snprintf(pbf, sizeof(pbf), "%s/pkgbuild_%s", LPM_PKGBUILD_DIR, queue[qi]);
-    struct stat st;
-    if (stat(pbf, &st) != 0) {
-      printf(C_CYAN "  ->" C_RESET " Fetching pkgbuild_%s...\n", queue[qi]);
-      fetch_pkgbuild(queue[qi]);
+  /* ══════════════════════════════════════════════════════════════════
+   * STEP 4: "Buy everything at the market first"
+   *   Download ALL sources for deps + optional recommends before
+   *   building anything.  Zero partial-build failures from net issues.
+   * ══════════════════════════════════════════════════════════════════ */
+
+  /* build full download queue = deps + accepted recommends */
+  char dl_queue[320][MAX_STR];
+  int  ndl = 0;
+  for (int i = 0; i < nqueue && ndl < 320; i++)
+    snprintf(dl_queue[ndl++], MAX_STR, "%s", queue[i]);
+
+  if (install_recommends) {
+    /* resolve recommends into their own dep queues and append */
+    char *rnames[64];
+    for (int r = 0; r < nrec; r++) rnames[r] = rec_names[r];
+    char rec_queue[64][MAX_STR];
+    int nrq = dep_resolve_queue_multi(rnames, nrec, rec_queue, 64, 0);
+    for (int r = 0; r < nrq && ndl < 320; r++) {
+      /* don't duplicate */
+      int dup = 0;
+      for (int k = 0; k < ndl; k++)
+        if (!strcmp(dl_queue[k], rec_queue[r])) { dup = 1; break; }
+      if (!dup)
+        snprintf(dl_queue[ndl++], MAX_STR, "%s", rec_queue[r]);
+    }
+    /* also fetch their PKGBUILDs */
+    for (int r = 0; r < nrq; r++) {
+      char pbf[LPM_PATH_MAX + LPM_NAME_MAX + 16];
+      snprintf(pbf, sizeof(pbf), "%s/pkgbuild_%s",
+               LPM_PKGBUILD_DIR, rec_queue[r]);
+      struct stat st;
+      if (stat(pbf, &st) != 0)
+        fetch_pkgbuild(rec_queue[r]);
     }
   }
 
-  if (fetch_all_sources(queue, nqueue) != 0)
-    die("Source fetch failed.");
+  printf(C_CYAN "::" C_RESET
+         " Downloading sources (%d package(s))...\n", ndl);
+  if (fetch_all_sources(dl_queue, ndl) != 0)
+    die("Source download failed — aborting before any build.");
 
-  for (int qi = 0; qi < nqueue; qi++) {
+  printf(C_GREEN "::" C_RESET " All sources downloaded.\n\n");
+
+  /* ══════════════════════════════════════════════════════════════════
+   * STEP 5: "Come home and cook"
+   *   Build + install in topo order.  All sources already on disk.
+   * ══════════════════════════════════════════════════════════════════ */
+  for (int qi = 0; qi < ndl; qi++) {
     CHECK_CANCEL(sync_done);
-    char pbfile[MAX_STR];
-    snprintf(pbfile, sizeof(pbfile), "%s/pkgbuild_%s", LPM_PKGBUILD_DIR, queue[qi]);
+    char pbfile[LPM_PATH_MAX + LPM_NAME_MAX + 16];
+    snprintf(pbfile, sizeof(pbfile), "%s/pkgbuild_%s",
+             LPM_PKGBUILD_DIR, dl_queue[qi]);
     Pkg pkg;
     if (pkgbuild_parse(pbfile, &pkg) != 0) {
-      warn("No PKGBUILD for '%s', skipping", queue[qi]);
+      warn("No PKGBUILD for '%s', skipping", dl_queue[qi]);
       continue;
     }
-    if (db_is_installed(queue[qi])) {
-      printf(C_CYAN "  ->" C_RESET " %s already installed, skipping\n", queue[qi]);
+    if (db_is_installed(dl_queue[qi])) {
+      printf(C_CYAN "  ->" C_RESET " %s already installed, skipping\n",
+             dl_queue[qi]);
       continue;
     }
-    do_build_install(&pkg, pbfile, &cfg, qi, nqueue, &flags);
-
-    if (!g_cancel && !flags.no_recommended)
-      lpm_prompt_recommends(queue[qi], &flags, install_one);
+    do_build_install(&pkg, pbfile, &cfg, qi, ndl, &flags);
   }
 sync_done:;
 }
@@ -945,7 +1191,7 @@ void cmd_check(int argc, char **argv) {
 
   for (int i = 0; i < argc; i++) {
     CHECK_CANCEL(check_done);
-    char pbfile[MAX_STR];
+    char pbfile[LPM_PATH_MAX + LPM_NAME_MAX + 16];
     snprintf(pbfile, sizeof(pbfile), "%s/pkgbuild_%s", LPM_PKGBUILD_DIR, argv[i]);
     Pkg pkg;
     if (pkgbuild_parse(pbfile, &pkg) != 0)
@@ -977,7 +1223,7 @@ void cmd_check(int argc, char **argv) {
              pbfile, ws, pkg_log);
     int rc = run(cmd);
 
-    char tail[MAX_STR];
+    char tail[MAX_STR + 32];
     snprintf(tail, sizeof(tail), "tail -40 '%s'", pkg_log);
     run(tail);
 
@@ -1182,7 +1428,7 @@ void cmd_update(int argc, char **argv) {
   int nupdate = 0;
 
   for (int i = 0; i < ntargets; i++) {
-    char pbfile[MAX_STR];
+    char pbfile[LPM_PATH_MAX + LPM_NAME_MAX + 16];
     snprintf(pbfile, sizeof(pbfile), "%s/pkgbuild_%s", LPM_PKGBUILD_DIR, targets[i]);
     struct stat st;
     if (stat(pbfile, &st) != 0) { warn("No PKGBUILD for '%s'", targets[i]); continue; }
@@ -1276,7 +1522,7 @@ static int fetch_all_sources(char queue[][MAX_STR], int nqueue) {
   /* pass 1: count sources to size the FetchJob array */
   int total_srcs = 0;
   for (int qi = 0; qi < nqueue; qi++) {
-    char pbfile[MAX_STR];
+    char pbfile[LPM_PATH_MAX + LPM_NAME_MAX + 16];
     snprintf(pbfile, sizeof(pbfile), "%s/pkgbuild_%s", LPM_PKGBUILD_DIR, queue[qi]);
     Pkg pkg;
     if (pkgbuild_parse(pbfile, &pkg) != 0) continue;
@@ -1293,7 +1539,7 @@ static int fetch_all_sources(char queue[][MAX_STR], int nqueue) {
   for (int qi = 0; qi < nqueue; qi++) {
     if (g_cancel) { free(jobs); return -1; }
 
-    char pbfile[MAX_STR];
+    char pbfile[LPM_PATH_MAX + LPM_NAME_MAX + 16];
     snprintf(pbfile, sizeof(pbfile), "%s/pkgbuild_%s", LPM_PKGBUILD_DIR, queue[qi]);
     Pkg pkg;
     if (pkgbuild_parse(pbfile, &pkg) != 0) continue;
@@ -1329,17 +1575,17 @@ static int fetch_all_sources(char queue[][MAX_STR], int nqueue) {
       if (stat(local_src, &st) == 0 && st.st_size > 0) {
         char cp_cmd[MAX_STR];
         snprintf(cp_cmd, sizeof(cp_cmd), "cp '%s' '%s'", local_src, dest);
-        system(cp_cmd);
+        (void)system(cp_cmd);
         continue;
       }
 
       /* enqueue for download */
       FetchJob *j = &jobs[njobs++];
-      strncpy(j->url,  pkg.source[i], LPM_URL_MAX  - 1);
-      strncpy(j->dest, dest,          LPM_PATH_MAX - 1);
+      snprintf(j->url,      LPM_URL_MAX,  "%s", pkg.source[i]);
+      snprintf(j->dest,     LPM_PATH_MAX, "%s", dest);
       char label[LPM_NAME_MAX];
       snprintf(label, sizeof(label), "%s-%s", pkg.pkgname, pkg.pkgver);
-      strncpy(j->filename, label, LPM_NAME_MAX - 1);
+      snprintf(j->filename, LPM_NAME_MAX, "%s", label);
 
       if (pkg.sha256sums[i][0] && strcmp(pkg.sha256sums[i], "SKIP") != 0) {
         strncpy(j->checksum, pkg.sha256sums[i], 128);
@@ -1359,7 +1605,7 @@ static int fetch_all_sources(char queue[][MAX_STR], int nqueue) {
   /* verify checksums after all downloads complete */
   if (ret == 0) {
     for (int qi = 0; qi < nqueue; qi++) {
-      char pbfile[MAX_STR];
+      char pbfile[LPM_PATH_MAX + LPM_NAME_MAX + 16];
       snprintf(pbfile, sizeof(pbfile), "%s/pkgbuild_%s", LPM_PKGBUILD_DIR, queue[qi]);
       Pkg pkg;
       if (pkgbuild_parse(pbfile, &pkg) != 0) continue;
@@ -1379,3 +1625,5 @@ static int fetch_all_sources(char queue[][MAX_STR], int nqueue) {
 
   return ret;
 }
+
+#pragma GCC diagnostic pop

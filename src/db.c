@@ -1,4 +1,8 @@
 #include "lpm.h"
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-truncation"
+#pragma GCC diagnostic ignored "-Wstringop-truncation"
+
 
 /* format: pkgname=ver-rel  (one per line) */
 
@@ -101,7 +105,7 @@ static int scan_pkgdir(const char *base, const char *rel, const char *pkgdir,
     else
       snprintf(rel_child, sizeof(rel_child), "%s", ent->d_name);
 
-    char abs_in_pkgdir[MAX_STR];
+    char abs_in_pkgdir[MAX_STR + MAX_STR];
     snprintf(abs_in_pkgdir, sizeof(abs_in_pkgdir), "%s/%s", base, rel_child);
 
     char resolved[MAX_STR];
@@ -139,7 +143,7 @@ void db_files_save(const char *pkgname, const char *pkgdir) {
   mkdir(LPM_FILES_DIR, 0755);
   mkdir(dir, 0755);
 
-  char listpath[MAX_STR];
+  char listpath[MAX_STR + 64];
   snprintf(listpath, sizeof(listpath), "%s/files.list", dir);
 
   FILE *fp = fopen(listpath, "w");
@@ -156,7 +160,7 @@ void db_files_save(const char *pkgname, const char *pkgdir) {
 }
 
 int db_files_remove(const char *pkgname) {
-  char listpath[MAX_STR];
+  char listpath[MAX_STR + 64];
   snprintf(listpath, sizeof(listpath), "%s/%s/files.list", LPM_FILES_DIR,
            pkgname);
 
@@ -241,7 +245,7 @@ int db_query(const char *name, InstalledPkg *out) {
   }
 
   /* load file list */
-  char listpath[MAX_STR];
+  char listpath[MAX_STR + 64];
   snprintf(listpath, sizeof(listpath), "%s/%s/files.list", LPM_FILES_DIR, name);
   FILE *fp = fopen(listpath, "r");
   if (fp) {
@@ -250,7 +254,9 @@ int db_query(const char *name, InstalledPkg *out) {
       line[strcspn(line, "\n")] = '\0';
       if (!line[0])
         continue;
-      strncpy(out->files[out->nfiles++], line, LPM_PATH_MAX - 1);
+      int idx = out->nfiles++;
+      strncpy(out->files[idx], line, LPM_PATH_MAX - 1);
+      out->files[idx][LPM_PATH_MAX - 1] = '\0';
     }
     fclose(fp);
   }
@@ -314,7 +320,7 @@ int db_query_owner(const char *filepath, char *out_name, size_t sz) {
 
   int found = -1;
   for (int i = 0; i < n && found < 0; i++) {
-    char listpath[MAX_STR];
+    char listpath[MAX_STR + 64];
     snprintf(listpath, sizeof(listpath), "%s/%s/files.list", LPM_FILES_DIR,
              pkgs[i].name);
     FILE *fp = fopen(listpath, "r");
@@ -338,7 +344,7 @@ int db_query_owner(const char *filepath, char *out_name, size_t sz) {
 
 /* ── db_list_files ───────────────────────────────────────────────────── */
 int db_list_files(const char *name) {
-  char listpath[MAX_STR];
+  char listpath[MAX_STR + 64];
   snprintf(listpath, sizeof(listpath), "%s/%s/files.list", LPM_FILES_DIR, name);
   FILE *fp = fopen(listpath, "r");
   if (!fp) {
@@ -360,7 +366,7 @@ int db_list_files(const char *name) {
 
 /* ── db_check_integrity ──────────────────────────────────────────────── */
 int db_check_integrity(const char *name) {
-  char listpath[MAX_STR];
+  char listpath[MAX_STR + 64];
   snprintf(listpath, sizeof(listpath), "%s/%s/files.list", LPM_FILES_DIR, name);
   FILE *fp = fopen(listpath, "r");
   if (!fp) {
@@ -384,3 +390,5 @@ int db_check_integrity(const char *name) {
     printf("\033[1;32mok:\033[0m all files present for %s\n", name);
   return missing;
 }
+
+#pragma GCC diagnostic pop

@@ -25,7 +25,7 @@
 #include <unistd.h>
 
 /* ── version ─────────────────────────────────────────────────────────── */
-#define LPM_VERSION "2.0.0-alpha"
+#define LPM_VERSION "Beta 1 build 4350"
 #define LPM_LOCK_FILE "/var/lock/lpm.lock"
 #define LPM_DB_DIR "/var/lib/lpm/db"
 #define LPM_DB "/var/lib/lpm/db/installed"
@@ -34,6 +34,10 @@
 #define LPM_BUILD_DIR "/var/cache/lpm"
 #define LPM_CONF_FILE "/etc/lpm/lpm.conf"
 #define LPM_PKGBUILD_DIR "/usr/src/lpm"
+#define LPM_BUILD_META_DIR "/var/lib/lpm/buildmeta"
+
+
+
 #define LPM_LOG_FILE "/var/log/lpm/lpm.log"
 #define LPM_LOG_DIR "/var/log/lpm"
 #define LPM_AUDIT_LOG "/var/log/lpm/audit.log"
@@ -45,14 +49,14 @@
 #define LPM_MAX_FILES 65536
 #define LPM_NAME_MAX 128
 #define LPM_VER_MAX 64
-#define LPM_URL_MAX 2048
-#define LPM_PATH_MAX 512
+#define LPM_URL_MAX 4096
+#define LPM_PATH_MAX 4096
 
 /* compat aliases — old files use these names */
 #define MAX_STR LPM_PATH_MAX
 #define MAX_DEPS LPM_MAX_DEPS
 #define MAX_SRCS LPM_MAX_SOURCES
-#define MAX_CMD 2048
+#define MAX_CMD 16384
 
 /* ── colors ──────────────────────────────────────────────────────────── */
 #define C_RESET  "\033[0m"
@@ -161,6 +165,8 @@ typedef struct {
   int nrecommends;
   char makedepends[LPM_MAX_DEPS][LPM_NAME_MAX];
   int nmakedepends;
+  char replaces[LPM_MAX_DEPS][LPM_NAME_MAX]; /* package rename */
+  int nreplaces;
   char source[LPM_MAX_SOURCES][LPM_PATH_MAX];
   int nsources;
   char sha256sums[LPM_MAX_SOURCES][129];
@@ -199,9 +205,55 @@ typedef struct {
   int strict;         /* --strict              */
   int no_recommended; /* --no-recommended      */
   int no_check;       /* --no-check            */
+  int dry_run;        /* --dry-run             */
   int force;          /* --force               */
   int debug;          /* --debug=N  (1/2/3)    */
 } LpmFlags;
+
+/* ── Build metadata (reproducible build info) ────────────────────── */
+typedef struct {
+    char pkgname[LPM_NAME_MAX];
+    char pkgver[LPM_VER_MAX];
+    char pkgrel[16];
+    char built_on[64];         /* "Lotus Linux 2.0"          */
+    char compiler[64];         /* "clang 19.1.7"             */
+    char libc[32];             /* "musl 1.2.5"               */
+    char build_flags[256];     /* CFLAGS used                */
+    char build_hash[65];       /* SHA-256 of pkgdir tree     */
+    char build_date[32];       /* ISO-8601                   */
+    int  is_binary;            /* 1 = pre-built binary pkg   */
+} BuildMeta;
+
+/* ── Dry-run: what a transaction WOULD do ────────────────────────── */
+typedef enum { DRY_INSTALL = 0, DRY_UPGRADE, DRY_REMOVE } DryOpType;
+
+typedef struct {
+    DryOpType type;
+    char name[LPM_NAME_MAX];
+    char from_ver[LPM_VER_MAX + 16];
+    char to_ver[LPM_VER_MAX + 16];
+    long dl_bytes;
+    long inst_bytes;
+    char conflict_with[LPM_NAME_MAX];
+    char hook[LPM_NAME_MAX];
+} DryOp;
+
+typedef struct {
+    DryOp ops[256];
+    int   nops;
+    long  total_dl;
+    long  total_inst_delta;
+} DryRun;
+
+/* ── buildmeta / dryrun API ─────────────────────────────────────── */
+int  buildmeta_save(const char *pkgname, const BuildMeta *m);
+int  buildmeta_load(const char *pkgname, BuildMeta *m);
+void buildmeta_collect(const char *pkgname, const char *pkgver,
+                       const char *pkgrel, int is_binary,
+                       const char *pkgdir, BuildMeta *m);
+void dryrun_print(const DryRun *dr);
+int  dryrun_build(char **pkgnames, int npkgs, DryRun *dr);
+int  dryrun_remove(char **pkgnames, int npkgs, DryRun *dr);
 
 /* ── LpmConfig ───────────────────────────────────────────────────────── *
  * Loaded from /etc/lpm/lpm.conf.                                        *
@@ -235,6 +287,17 @@ typedef struct {
   int verify_sig;
   char downloader[16];
   char profile[64];
+
+  /* build behaviour (compat / config-file settable) */
+  int keep_src;       /* keep extracted source tree after build  */
+  int keep_pkg;       /* keep stripped pkg dir after install     */
+  int check_space;    /* warn when disk space is low             */
+  int confirm;        /* require confirmation before actions      */
+  int default_yes;    /* default answer to prompts is yes        */
+  int default_strict; /* treat warnings as errors                */
+  int run_check;      /* run check() function in pkgbuild        */
+  int strict_build;   /* fail on any build warning               */
+
   /* package lists */
   char critical_pkgs[256][64];
   int n_critical;
@@ -269,7 +332,7 @@ typedef struct {
 /* ── PkgMeta — fast parser cache struct (pkgbuild_parser.c) ─────────── */
 #define LPM_META_CACHE_DIR "/var/lib/lpm/cache"
 #define LPM_META_MAGIC   0x4C504D43
-#define LPM_META_VERSION 2
+#define LPM_META_VERSION 3
 
 typedef struct __attribute__((packed)) {
   uint32_t magic;
@@ -280,12 +343,14 @@ typedef struct __attribute__((packed)) {
   char pkgrel[16];
   char description[512];
   char license[128];
-  uint8_t ndepends, nrecommends, nmakedepends, nconflicts;
+  uint8_t ndepends, nrecommends, nmakedepends, nconflicts, nreplaces;
   char depends[LPM_MAX_DEPS][LPM_NAME_MAX];
   char recommends[LPM_MAX_DEPS][LPM_NAME_MAX];
   char makedepends[LPM_MAX_DEPS][LPM_NAME_MAX];
   char conflicts[LPM_MAX_DEPS][LPM_NAME_MAX];
+  char replaces[LPM_MAX_DEPS][LPM_NAME_MAX]; /* package rename support */
   uint8_t has_build, has_check, has_package, has_remove;
+  uint8_t is_binary; /* pkgtype = binary|bin → 1, source|src → 0 */
 } PkgMeta;
 
 /* ── globals ─────────────────────────────────────────────────────────── */
@@ -410,6 +475,14 @@ int safety_guard_symlinks(const char *src_path, const char *dest_path);
 /* ── search.c ────────────────────────────────────────────────────────── */
 void cmd_search(int argc, char **argv);
 void cmd_info(int argc, char **argv);
+void cmd_owns(int argc, char **argv);
+void cmd_files(int argc, char **argv);
+void buildmeta_collect(const char *pkgname, const char *pkgver,
+                       const char *pkgrel, int is_binary,
+                       const char *pkgdir, BuildMeta *m);
+int  dryrun_build(char **pkgnames, int npkgs, DryRun *dr);
+int  dryrun_remove(char **pkgnames, int npkgs, DryRun *dr);
+
 void cmd_list(int argc, char **argv);
 void cmd_orphans(int argc, char **argv);
 
@@ -418,14 +491,22 @@ void cmd_rcc(int argc, char **argv);
 
 /* ── key.c (GPG keyring — kept from lpm.git) ─────────────────────────── */
 void cmd_key(int argc, char **argv);
-void cmd_profile(int argc, char **argv);
-void cmd_doctor(int argc, char **argv);
 
-/* ── lpkg.c — binary package format (.lpkg) ─────────────────────────── */
-void cmd_pack(int argc, char **argv);
-void cmd_pkginstall(int argc, char **argv);
-void cmd_pkginstall_dir(int argc, char **argv);
-void cmd_pkglist(int argc, char **argv);
+/* ── lpkg.c — binary package format (.lpkg) ─────────────────────────── *
+ *                                                                         *
+ *  lpm -Pb <pkg>             build then pack → <pkg>-<ver>-<rel>-amd64.lpkg
+ *  lpm -Pi <pkg.lpkg|name>   install from .lpkg (path or bare name scan)
+ *  lpm -Pq [pkg.lpkg|name]   list cached .lpkg or show package info
+ *  lpm -Pe <pkg.lpkg|name>   extract .lpkg into cwd for inspection
+ *  lpm -Pv <pkg.lpkg|name>   verify .lpkg sha256 + meta integrity
+ *  lpm -Pr <pkg.lpkg|name>   remove cached .lpkg file (not uninstall)
+ * ─────────────────────────────────────────────────────────────────────── */
+void cmd_pack(int argc, char **argv);            /* -Pb */
+void cmd_pkginstall(int argc, char **argv);      /* -Pi */
+void cmd_pkglist(int argc, char **argv);         /* -Pq */
+void cmd_pkginstall_dir(int argc, char **argv);  /* -Pe */
+void cmd_pkgverify(int argc, char **argv);       /* -Pv */
+void cmd_pkgremove_file(int argc, char **argv);  /* -Pr */
 
 /* ── recommend.c ─────────────────────────────────────────────────────── */
 int lpm_prompt_recommends(const char *pkgname, const LpmFlags *flags,

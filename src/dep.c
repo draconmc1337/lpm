@@ -274,7 +274,7 @@ static void toposort(void) {
 }
 
 int dep_resolve_queue(const char *pkgname,
-                      char out[][MAX_STR], int maxout) {
+                      char out[][MAX_STR], int maxout, int build_all) {
     nresolved = 0;
     memset(pkg_cached, 0, sizeof(pkg_cached));
     collect(pkgname, 0);
@@ -282,7 +282,7 @@ int dep_resolve_queue(const char *pkgname,
     int n = 0;
     for (int i = 0; i < nbuild && n < maxout; i++) {
         DepNode *node = &resolved[build_order[i]];
-        if (node->has_src && !node->installed)
+        if (node->has_src && (build_all || !node->installed))
             strncpy(out[n++], node->name, MAX_STR - 1);
     }
     return n;
@@ -380,4 +380,34 @@ void dep_set_folder(const char *pkgname, const char *folder) {
             strncpy(resolved[i].folder, folder, sizeof(resolved[i].folder) - 1);
             return;
         }
+}
+
+/* ── dep_resolve_queue_multi ─────────────────────────────────────────────── */
+/* Collect N packages + toposort once — replaces loop of dep_resolve_queue()×N */
+int dep_resolve_queue_multi(char **pkgnames, int npkgs,
+                             char out[][MAX_STR], int maxout, int build_all) {
+    nresolved = 0;
+    memset(pkg_cached, 0, sizeof(pkg_cached));
+    for (int i = 0; i < npkgs; i++)
+        collect(pkgnames[i], 0);
+    toposort();
+    int n = 0;
+    for (int i = 0; i < nbuild && n < maxout; i++) {
+        DepNode *node = &resolved[build_order[i]];
+        if (node->has_src && (build_all || !node->installed))
+            strncpy(out[n++], node->name, MAX_STR - 1);
+    }
+    return n;
+}
+
+/* ── dep_meta_cache_invalidate ───────────────────────────────────────────── */
+/* Invalidate in-process PkgMeta cache (call after lpm -Sy) */
+void dep_meta_cache_invalidate(void) {
+    memset(pkg_cached, 0, sizeof(pkg_cached));
+}
+
+/* ── dep_get_recommends ──────────────────────────────────────────────────── */
+int dep_get_recommends(const char *pkgname, char out[][MAX_STR], int maxout) {
+    (void)pkgname; (void)out; (void)maxout;
+    return 0;
 }

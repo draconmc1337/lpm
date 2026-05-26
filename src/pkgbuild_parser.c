@@ -22,11 +22,15 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <ctype.h>
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-truncation"
+#pragma GCC diagnostic ignored "-Wstringop-truncation"
+
 
 /* ── Cache directory ─────────────────────────────────────────────────── */
-#define LPM_META_CACHE_DIR  "/var/lib/lpm/cache"
-#define LPM_META_MAGIC      0x4C504D43  /* "LPMC" */
-#define LPM_META_VERSION    2
+// LPM_META_CACHE_DIR defined in lpm.h
+// LPM_META_MAGIC defined in lpm.h
+// LPM_META_VERSION defined in lpm.h
 
 /* PkgMeta struct defined in lpm.h */
 
@@ -104,23 +108,26 @@ static void expand_vars(const ParseState *st, const char *in,
     *q = '\0';
 }
 
-/* Parse a bash array value: (elem1 "elem2" 'elem3')
- * Handles multiline arrays by reading continuation lines from fp.
+/* ── parse_array ─────────────────────────────────────────────────────
+ * New strict format:  key = ("elem1"; "elem2"; "elem3")
+ *   - Elements MUST be double-quoted
+ *   - Elements MUST be separated by "; " (semicolon + space)
+ *   - Missing space after ; is a parse error (element skipped)
+ *   - Multiline arrays supported: ) can be on a later line
  * Returns number of elements parsed into out[][]. */
 static int parse_array(const char *val_start, FILE *fp,
                        const ParseState *st,
                        char out[][LPM_NAME_MAX], int maxn) {
     char buf[4096];
-    /* collect full array content between ( and ) */
     snprintf(buf, sizeof(buf), "%s", val_start);
 
-    /* if closing ) not yet seen, read more lines */
-    while (!strchr(buf, ')') && fgets(buf + strlen(buf),
-           (int)(sizeof(buf) - strlen(buf)), fp)) {
-        /* buf grows with each continuation line */
+    /* read continuation lines until we see closing ) */
+    while (!strchr(buf, ')')) {
+        size_t cur = strlen(buf);
+        if (cur + 2 >= sizeof(buf)) break;
+        if (!fgets(buf + cur, (int)(sizeof(buf) - cur), fp)) break;
     }
 
-    /* find content between ( and ) */
     char *open  = strchr(buf, '(');
     char *close = strrchr(buf, ')');
     if (!open || !close || close <= open) return 0;
@@ -130,24 +137,25 @@ static int parse_array(const char *val_start, FILE *fp,
     int n = 0;
 
     while (*p && n < maxn) {
-        /* skip whitespace */
-        while (*p && isspace((unsigned char)*p)) p++;
-        if (!*p || *p == ')') break;
+        /* skip leading whitespace / newlines */
+        while (*p && (isspace((unsigned char)*p))) p++;
+        if (!*p) break;
 
-        /* extract element (quoted or unquoted) */
+        /* ── strict: element must start with double-quote ── */
+        if (*p != '"') {
+            /* skip to next semicolon to recover, then continue */
+            char *semi = strchr(p, ';');
+            if (!semi) break;
+            p = semi + 1;
+            continue;
+        }
+        p++; /* consume opening " */
+
         char elem[LPM_NAME_MAX] = "";
         int ei = 0;
-
-        if (*p == '"' || *p == '\'') {
-            char q = *p++;
-            while (*p && *p != q && ei < (int)sizeof(elem)-1)
-                elem[ei++] = *p++;
-            if (*p == q) p++;
-        } else {
-            while (*p && !isspace((unsigned char)*p) &&
-                   *p != ')' && ei < (int)sizeof(elem)-1)
-                elem[ei++] = *p++;
-        }
+        while (*p && *p != '"' && ei < (int)sizeof(elem)-1)
+            elem[ei++] = *p++;
+        if (*p == '"') p++; /* consume closing " */
         elem[ei] = '\0';
 
         if (elem[0]) {
@@ -155,13 +163,31 @@ static int parse_array(const char *val_start, FILE *fp,
             expand_vars(st, elem, expanded, sizeof(expanded));
             strncpy(out[n++], expanded, LPM_NAME_MAX - 1);
         }
+
+        /* ── strict: separator must be "; " (semicolon + space) ──
+         * bare ";" with no following space is an error — skip elem */
+        while (*p && isspace((unsigned char)*p) && *p != ';') p++;
+        if (*p == ';') {
+            p++; /* consume ; */
+            /* require at least one space after ; */
+            if (*p != ' ' && *p != '\t' && *p != '\n' && *p != '\0') {
+                /* no space after semicolon — format error, skip to next ; */
+                char *semi = strchr(p, ';');
+                if (!semi) break;
+                p = semi; /* will consume on next iteration */
+                continue;
+            }
+        }
     }
     return n;
 }
 
 /* ── Core C parser ───────────────────────────────────────────────────── *
- * Single pass through PKGBUILD, no bash spawned.                        *
- * Returns 0 on success, -1 on file error.                               */
+ * Strict format enforced:                                               *
+ *   Scalars: key = "value"   (space BEFORE and AFTER = required)        *
+ *   Arrays:  key = ("a"; "b"; "c")  (double-quote + "; " separator)    *
+ *   pkgtype = "binary" | "source" | "bin" | "src"                      *
+ * Returns 0 on success, -1 on file error or format violation.           */
 static int parse_pkgbuild_c(const char *pbfile, PkgMeta *m) {
     FILE *fp = fopen(pbfile, "r");
     if (!fp) return -1;
@@ -169,66 +195,76 @@ static int parse_pkgbuild_c(const char *pbfile, PkgMeta *m) {
     ParseState st;
     memset(&st, 0, sizeof(st));
 
+    int line_no = 0;
     char line[4096];
     while (fgets(line, sizeof(line), fp)) {
+        line_no++;
         char *p = lstrip(line);
 
-        /* skip comments and empty lines */
         if (*p == '#' || *p == '\0' || *p == '\n') continue;
-
         rstrip(p);
 
-        /* Detect function declarations: build() { / package() { etc.
-         *
-         * BUG FIX: the old check was:
-         *   strstr(p, "()") || (strchr(p, '(') && strchr(p, ')'))
-         * This incorrectly matched array assignments like depends=(ncurses)
-         * because they also contain both '(' and ')'.
-         *
-         * Correct rule: a function declaration has NO '=' before the '(',
-         * i.e. the line looks like  name()  or  name() {
-         * An array assignment always has key=(...), so '=' comes first.
-         */
+        /* ── function declarations: build() / package() / check() ── */
         {
             char *eq_pos   = strchr(p, '=');
             char *open_pos = strchr(p, '(');
-            int is_func = open_pos                   /* has '('       */
-                          && (!eq_pos                /* no '=' at all */
-                              || open_pos < eq_pos); /* '(' before '='*/
+            int is_func = open_pos
+                          && (!eq_pos || open_pos < eq_pos);
             if (is_func) {
-                if      (strncmp(p, "build",   5) == 0) m->has_build   = 1;
-                else if (strncmp(p, "check",   5) == 0) m->has_check   = 1;
-                else if (strncmp(p, "package", 7) == 0) m->has_package = 1;
-                else if (strncmp(p, "remove",  6) == 0) m->has_remove  = 1;
+                if      (strncmp(p, "build",     5) == 0) m->has_build   = 1;
+                else if (strncmp(p, "check",     5) == 0) m->has_check   = 1;
+                else if (strncmp(p, "package",   7) == 0) m->has_package = 1;
+                else if (strncmp(p, "remove",    6) == 0) m->has_remove  = 1;
+                else if (strncmp(p, "uninstall", 9) == 0) m->has_remove  = 1;
                 continue;
             }
         }
 
-        /* find key=value split */
+        /* ── strict key = value split ─────────────────────────────────
+         * Format:  key<SP>=<SP>value
+         * Both the space before '=' and the space after '=' are required.
+         * "key=value" and "key= value" are rejected with a warning.     */
         char *eq = strchr(p, '=');
         if (!eq) continue;
 
+        /* check space BEFORE '=' */
+        if (eq == p || *(eq - 1) != ' ') {
+            fprintf(stderr,
+                C_YELLOW "warning:" C_RESET
+                " %s:%d: missing space before '=' — line ignored\n"
+                "  hint: use  key = \"value\"  not  key=value\n",
+                pbfile, line_no);
+            continue;
+        }
+
+        /* check space AFTER '=' */
+        if (*(eq + 1) != ' ' && *(eq + 1) != '(') {
+            fprintf(stderr,
+                C_YELLOW "warning:" C_RESET
+                " %s:%d: missing space after '=' — line ignored\n"
+                "  hint: use  key = \"value\"  not  key=\"value\"\n",
+                pbfile, line_no);
+            continue;
+        }
+
         char key[64];
-        int klen = (int)(eq - p);
+        int klen = (int)(eq - p) - 1; /* -1 for the space before = */
         if (klen <= 0 || klen >= (int)sizeof(key)) continue;
-        strncpy(key, p, klen);
+        strncpy(key, p, (size_t)klen);
         key[klen] = '\0';
-        rstrip(key);
 
-        char *val = lstrip(eq + 1);
+        char *val = lstrip(eq + 1); /* skip '=' then spaces */
 
-        /* expand variables in value */
         char expanded[2048];
         expand_vars(&st, val, expanded, sizeof(expanded));
         val = expanded;
 
-        /* store scalar in ParseState for later expansion */
+        /* store scalar for variable expansion in later lines */
         if (st.nvars < 32) {
             strncpy(st.vars[st.nvars][0], key, LPM_NAME_MAX-1);
             char tmp[512];
             strncpy(tmp, val, sizeof(tmp)-1);
-            strip_quotes(tmp);
-            rstrip(tmp);
+            strip_quotes(tmp); rstrip(tmp);
             strncpy(st.vars[st.nvars][1], tmp, 511);
             st.nvars++;
         }
@@ -243,27 +279,36 @@ static int parse_pkgbuild_c(const char *pbfile, PkgMeta *m) {
         } else if (!strcmp(key, "pkgrel")) {
             strncpy(m->pkgrel, val, 15);
             strip_quotes(m->pkgrel); rstrip(m->pkgrel);
-        } else if (!strcmp(key, "description") ||
-                   !strcmp(key, "pkgdesc")) {
+        } else if (!strcmp(key, "pkgdesc") || !strcmp(key, "description")) {
             strncpy(m->description, val, 511);
             strip_quotes(m->description); rstrip(m->description);
         } else if (!strcmp(key, "license")) {
             strncpy(m->license, val, 127);
             strip_quotes(m->license); rstrip(m->license);
+        } else if (!strcmp(key, "pkgtype")) {
+            /* binary: pre-built, no compilation; source: build from src */
+            char tmp[32];
+            strncpy(tmp, val, sizeof(tmp)-1); tmp[31] = '\0';
+            strip_quotes(tmp); rstrip(tmp);
+            m->is_binary = (!strcmp(tmp, "binary") ||
+                            !strcmp(tmp, "bin"));
         }
-        /* ── array fields ── */
+        /* ── array fields: ("a"; "b"; "c") ── */
         else if (!strcmp(key, "depends")) {
             m->ndepends = (uint8_t)parse_array(val, fp, &st,
                            m->depends, LPM_MAX_DEPS);
-        } else if (!strcmp(key, "recommends")) {
-            m->nrecommends = (uint8_t)parse_array(val, fp, &st,
-                              m->recommends, LPM_MAX_DEPS);
         } else if (!strcmp(key, "makedepends")) {
             m->nmakedepends = (uint8_t)parse_array(val, fp, &st,
                                m->makedepends, LPM_MAX_DEPS);
+        } else if (!strcmp(key, "recommends")) {
+            m->nrecommends = (uint8_t)parse_array(val, fp, &st,
+                              m->recommends, LPM_MAX_DEPS);
         } else if (!strcmp(key, "conflicts")) {
             m->nconflicts = (uint8_t)parse_array(val, fp, &st,
                              m->conflicts, LPM_MAX_DEPS);
+        } else if (!strcmp(key, "replaces")) {
+            m->nreplaces = (uint8_t)parse_array(val, fp, &st,
+                            m->replaces, LPM_MAX_DEPS);
         }
     }
 
@@ -379,6 +424,7 @@ int pkgbuild_parse_fast(const char *pbfile, PkgMeta *m) {
         m->ndepends    = (uint8_t)tmp_pkg.ndepends;
         m->nrecommends = (uint8_t)tmp_pkg.nrecommends;
         m->nmakedepends= (uint8_t)tmp_pkg.nmakedepends;
+        m->nreplaces   = (uint8_t)tmp_pkg.nreplaces;
         m->has_check   = tmp_pkg.has_check;
         for (int i = 0; i < tmp_pkg.ndepends; i++)
             strncpy(m->depends[i], tmp_pkg.depends[i], LPM_NAME_MAX-1);
@@ -386,6 +432,8 @@ int pkgbuild_parse_fast(const char *pbfile, PkgMeta *m) {
             strncpy(m->recommends[i], tmp_pkg.recommends[i], LPM_NAME_MAX-1);
         for (int i = 0; i < tmp_pkg.nmakedepends; i++)
             strncpy(m->makedepends[i], tmp_pkg.makedepends[i], LPM_NAME_MAX-1);
+        for (int i = 0; i < tmp_pkg.nreplaces; i++)
+            strncpy(m->replaces[i], tmp_pkg.replaces[i], LPM_NAME_MAX-1);
     }
 
     /* 4. write cache for next time */
@@ -402,3 +450,5 @@ void pkgbuild_invalidate_cache(const char *pkgname) {
              LPM_META_CACHE_DIR, pkgname);
     unlink(path);
 }
+
+#pragma GCC diagnostic pop

@@ -13,6 +13,10 @@
  */
 
 #include "lpm.h"
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-truncation"
+#pragma GCC diagnostic ignored "-Wstringop-truncation"
+
 
 /* Đọc description của một package từ PKGBUILD của nó.
  * Trả về static buffer — chỉ dùng ngay, không lưu lại. */
@@ -111,3 +115,5 @@ int lpm_prompt_recommends(const char *pkgname, const LpmFlags *flags,
                installed_count, n);
     return installed_count;
 }
+
+#pragma GCC diagnostic pop
