@@ -7,7 +7,8 @@ SRCS = src/main.c src/util.c src/db.c src/pkgbuild.c \
        src/config.c src/download.c src/checksum.c \
        src/transaction.c src/merge.c src/safety.c src/key.c \
        src/pkgbuild_parser.c src/recommend.c src/sync.c src/lpkg.c \
-       src/buildmeta.c src/dryrun.c
+       src/buildmeta.c src/dryrun.c \
+       src/fix-musl.c
 
 TARGET  = lpm
 

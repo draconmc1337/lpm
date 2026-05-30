@@ -23,6 +23,7 @@ static void usage(void) {
          "    lpm {-R --remove}   [options] <package(s)>\n"
          "    lpm {-S --sync}     [options] [package(s)]\n"
          "    lpm {-U --upgrade}  [options] [package(s)]\n"
+         "    lpm fix-musl        [--check] <pkg.lpm>\n"
          "\n");
 }
 
@@ -160,6 +161,7 @@ int main(int argc, char **argv) {
                    strcmp(cmd, "-V") != 0 && strcmp(cmd, "-v") != 0 &&
                    strcmp(cmd, "-h") != 0 && strcmp(cmd, "--help") != 0 &&
                    strcmp(cmd, "-D") != 0 && strcmp(cmd, "-Pq") != 0 &&
+                   strcmp(cmd, "fix-musl") != 0 &&
                    strcmp(cmd, "-Pv") != 0;
 
   if (needs_lock) {
@@ -208,6 +210,8 @@ int main(int argc, char **argv) {
     cmd_orphans(sub_argc, sub_argv);
   else if (!strcmp(cmd, "-K"))
     cmd_key(sub_argc, sub_argv);
+  else if (!strcmp(cmd, "fix-musl"))
+    cmd_fix_musl(sub_argc, sub_argv);
   /* ── -P / --package: binary package management ─────────────────────── */
   else if (!strcmp(cmd, "-Pb"))
     cmd_pack(sub_argc, sub_argv);
