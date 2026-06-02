@@ -323,7 +323,18 @@ int llpm_dep_resolve(llpm_handle_t *h, llpm_trans_t *t) {
             memset(op, 0, sizeof(*op));
             op->type = LLPM_TRANS_TYPE_INSTALL;
             op->pkg.reason = LLPM_REASON_DEP;
-            llpm_repo_find_pkg(h, dep_name, &op->pkg);
+            /* llpm_repo_find_pkg expects llpm_pkg_t*, not llpm_trans_pkg_t* */
+            {
+                llpm_pkg_t tmp_pkg;
+                if (llpm_repo_find_pkg(h, dep_name, &tmp_pkg) == 0) {
+                    strncpy(op->pkg.name,    tmp_pkg.name,
+                            LLPM_NAME_MAX - 1);
+                    strncpy(op->pkg.version, tmp_pkg.version,
+                            sizeof(op->pkg.version) - 1);
+                } else {
+                    strncpy(op->pkg.name, dep_name, LLPM_NAME_MAX - 1);
+                }
+            }
         }
     }
 

@@ -589,8 +589,14 @@ void cmd_suy(int argc, char **argv) {
                 try_repos[ntr++] = REPO_NAMES[r];
 
         for (int r = 0; r < ntr && !fetched; r++) {
-            snprintf(url_found, sizeof(url_found),
-                     "%s/%s/pkgbuild_%s", REPO_BASE, try_repos[r], u->name);
+            {
+                char _letter = u->name[0];
+                if (_letter >= 'A' && _letter <= 'Z') _letter += 32;
+                if (_letter < 'a' || _letter > 'z')  _letter = '0';
+                snprintf(url_found, sizeof(url_found),
+                         "%s/%s/%c/pkgbuild_%s",
+                         REPO_BASE, try_repos[r], _letter, u->name);
+            }
             char part[LPM_PATH_MAX];
             snprintf(part, sizeof(part), "%s.part", dest);
             char cmd[2048];

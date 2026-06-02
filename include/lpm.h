@@ -506,8 +506,7 @@ void cmd_pkginstall(int argc, char **argv);      /* -Pi */
 void cmd_pkglist(int argc, char **argv);         /* -Pq */
 void cmd_pkginstall_dir(int argc, char **argv);  /* -Pe */
 void cmd_pkgverify(int argc, char **argv);       /* -Pv */
-void cmd_pkgremove_file(int argc, char **argv);       /* -Pr */
-void cmd_fix_musl(int argc, char **argv);             /* fix-musl */
+void cmd_pkgremove_file(int argc, char **argv);  /* -Pr */
 
 /* ── recommend.c ─────────────────────────────────────────────────────── */
 int lpm_prompt_recommends(const char *pkgname, const LpmFlags *flags,

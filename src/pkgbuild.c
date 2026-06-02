@@ -51,7 +51,27 @@ static int bash_func_exists(const char *pbfile, const char *fname) {
   return (system(cmd) == 0);
 }
 
-/* ── pkgbuild_parse ──────────────────────────────────────────────────────── */
+/* ── is_new_format ───────────────────────────────────────────────────────── *
+ * Returns 1 if pbfile uses new format (key = "value"), 0 for bash format.  */
+static int is_new_format(const char *pbfile) {
+  FILE *f = fopen(pbfile, "r");
+  if (!f) return 0;
+  char line[512];
+  int result = 0;
+  while (fgets(line, sizeof(line), f)) {
+    if (strstr(line, " = ") || strncmp(line, "pkgtype", 7) == 0) {
+      result = 1; break;
+    }
+  }
+  fclose(f);
+  return result;
+}
+
+/* ── pkgbuild_parse ──────────────────────────────────────────────────────── *
+ * Supports both new format (key = "value") and old bash format.            *
+ * For new format: delegates to the C parser (pkgbuild_parse_fast) and      *
+ * copies the relevant fields into Pkg — no bash subprocess needed.         *
+ * For old format: uses bash_scalar / bash_array as before.                 */
 int pkgbuild_parse(const char *pbfile, Pkg *pkg) {
   struct stat st;
   if (stat(pbfile, &st) != 0)
@@ -60,6 +80,87 @@ int pkgbuild_parse(const char *pbfile, Pkg *pkg) {
   memset(pkg, 0, sizeof(*pkg));
   strncpy(pkg->pbfile, pbfile, MAX_STR - 1);
 
+  /* ── new format: use C parser ── */
+  if (is_new_format(pbfile)) {
+    PkgMeta m;
+    if (pkgbuild_parse_fast(pbfile, &m) != 0)
+      return -1;
+
+    strncpy(pkg->pkgname, m.pkgname, sizeof(pkg->pkgname) - 1);
+    strncpy(pkg->pkgver,  m.pkgver,  sizeof(pkg->pkgver)  - 1);
+    strncpy(pkg->pkgrel,  m.pkgrel,  sizeof(pkg->pkgrel)  - 1);
+
+    pkg->ndepends = m.ndepends;
+    for (int i = 0; i < m.ndepends && i < MAX_DEPS; i++)
+      strncpy(pkg->depends[i], m.depends[i], LPM_NAME_MAX - 1);
+
+    pkg->nrecommends = m.nrecommends;
+    for (int i = 0; i < m.nrecommends && i < MAX_DEPS; i++)
+      strncpy(pkg->recommends[i], m.recommends[i], LPM_NAME_MAX - 1);
+
+    pkg->nmakedepends = m.nmakedepends;
+    for (int i = 0; i < m.nmakedepends && i < MAX_DEPS; i++)
+      strncpy(pkg->makedepends[i], m.makedepends[i], LPM_NAME_MAX - 1);
+
+    /* source: pkgbuild_parse_fast doesn't parse sources — read directly */
+    {
+      FILE *f = fopen(pbfile, "r");
+      char line[LPM_PATH_MAX];
+      while (f && fgets(line, sizeof(line), f) && pkg->nsources < MAX_SRCS) {
+        char *p = line;
+        while (*p == ' ' || *p == '\t') p++;
+        /* match: source  = "url" */
+        if (strncmp(p, "source", 6) == 0) {
+          char *eq = strchr(p, '=');
+          if (!eq) continue;
+          char *val = eq + 1;
+          while (*val == ' ') val++;
+          /* strip surrounding quotes */
+          if (*val == '"') val++;
+          val[strcspn(val, "\"\n\r")] = '\0';
+          if (val[0]) {
+            strncpy(pkg->source[pkg->nsources], val, MAX_STR - 1);
+            pkg->nsources++;
+          }
+        }
+        /* md5sums = "hash" */
+        if (strncmp(p, "md5sums", 7) == 0) {
+          char *eq = strchr(p, '=');
+          if (!eq) continue;
+          char *val = eq + 1;
+          while (*val == ' ') val++;
+          if (*val == '"') val++;
+          val[strcspn(val, "\"\n\r")] = '\0';
+          if (val[0]) strncpy(pkg->md5sums[0], val, 32);
+        }
+        if (strncmp(p, "sha256sums", 10) == 0) {
+          char *eq = strchr(p, '=');
+          if (!eq) continue;
+          char *val = eq + 1;
+          while (*val == ' ') val++;
+          if (*val == '"') val++;
+          val[strcspn(val, "\"\n\r")] = '\0';
+          if (val[0]) strncpy(pkg->sha256sums[0], val, 128);
+        }
+        if (strncmp(p, "sha512sums", 10) == 0) {
+          char *eq = strchr(p, '=');
+          if (!eq) continue;
+          char *val = eq + 1;
+          while (*val == ' ') val++;
+          if (*val == '"') val++;
+          val[strcspn(val, "\"\n\r")] = '\0';
+          if (val[0]) strncpy(pkg->sha512sums[0], val, 128);
+        }
+      }
+      if (f) fclose(f);
+    }
+
+    pkg->has_check     = m.has_check;
+    pkg->has_uninstall = m.has_remove;
+    return 0;
+  }
+
+  /* ── old bash format ── */
   bash_scalar(pbfile, "pkgname", pkg->pkgname, MAX_STR);
   bash_scalar(pbfile, "pkgver", pkg->pkgver, MAX_STR);
   bash_scalar(pbfile, "pkgrel", pkg->pkgrel, MAX_STR);
@@ -72,11 +173,9 @@ int pkgbuild_parse(const char *pbfile, Pkg *pkg) {
   pkg->nreplaces =
       bash_array(pbfile, "replaces", pkg->replaces, MAX_DEPS);
 
-  /* source is a scalar string, not array */
   bash_scalar(pbfile, "source", pkg->source[0], MAX_STR);
   pkg->nsources = pkg->source[0][0] ? 1 : 0;
 
-  /* source2, source3... */
   for (int i = 2; i <= MAX_SRCS && pkg->nsources < MAX_SRCS; i++) {
     char varname[16];
     snprintf(varname, sizeof(varname), "source%d", i);
@@ -85,21 +184,18 @@ int pkgbuild_parse(const char *pbfile, Pkg *pkg) {
       pkg->nsources++;
   }
 
-  /* sha256sums */
   bash_scalar(pbfile, "sha256sums", pkg->sha256sums[0], MAX_STR);
   for (int i = 2; i <= MAX_SRCS; i++) {
     char varname[32];
     snprintf(varname, sizeof(varname), "sha256sums%d", i);
     bash_scalar(pbfile, varname, pkg->sha256sums[i - 1], MAX_STR);
   }
-  /* sha512sums */
   bash_scalar(pbfile, "sha512sums", pkg->sha512sums[0], MAX_STR);
   for (int i = 2; i <= MAX_SRCS; i++) {
     char varname[32];
     snprintf(varname, sizeof(varname), "sha512sums%d", i);
     bash_scalar(pbfile, varname, pkg->sha512sums[i - 1], MAX_STR);
   }
-  /* md5sums */
   bash_scalar(pbfile, "md5sums", pkg->md5sums[0], MAX_STR);
   for (int i = 2; i <= MAX_SRCS; i++) {
     char varname[32];

@@ -773,10 +773,11 @@ static const char *FOLDERS[] = { "base", "extra", "lotus" };
  * Both suppress all output; only the exit code is used.
  */
 static int pkg_exists_in_repo(const char *name) {
+  char bucket[2] = { (char)tolower((unsigned char)name[0]), '\0' };
   for (int f = 0; f < NFOLDERS; f++) {
     char url[MAX_STR];
-    snprintf(url, sizeof(url), "%s/%s/pkgbuild_%s",
-             REPO_BASE, FOLDERS[f], name);
+    snprintf(url, sizeof(url), "%s/%s/%s/pkgbuild_%s",
+             REPO_BASE, FOLDERS[f], bucket, name);
 
     /* try wget --spider first, then curl -I --fail */
     char cmd[MAX_CMD];
@@ -814,8 +815,9 @@ static int fetch_pkgbuild(const char *name) {
   printf(C_CYAN "::" C_RESET " Fetching pkgbuild_%s...\n", name);
 
   char url[MAX_STR];
-  snprintf(url, sizeof(url), "%s/%s/pkgbuild_%s",
-           REPO_BASE, FOLDERS[folder], name);
+  char bucket[2] = { (char)tolower((unsigned char)name[0]), '\0' };
+  snprintf(url, sizeof(url), "%s/%s/%s/pkgbuild_%s",
+           REPO_BASE, FOLDERS[folder], bucket, name);
 
   if (fetch_url(url, dest) == 0) {
     struct stat st;
@@ -840,7 +842,7 @@ void cmd_fetch(int argc, char **argv) {
   check_root();
   init_dirs();
   if (argc == 0)
-    die("No package specified.\nUsage: lpm -Sy <package>");
+    die("No package specified.\nUsage: lpm update");
   for (int i = 0; i < argc; i++) {
     if (fetch_pkgbuild(argv[i]) != 0)
       fprintf(stderr, C_RED "error: " C_RESET "pkgbuild_%s not found\n", argv[i]);
@@ -895,7 +897,7 @@ void cmd_local(int argc, char **argv) {
   char *pkgs[256];
   int npkgs = lpm_parse_flags(argc, argv, &flags, pkgs, 256);
   if (npkgs == 0)
-    die("No package specified.\nUsage: lpm -Si <package>");
+    die("No package specified.\nUsage: lpm info <package>");
 
   /* verify all requested PKGBUILDs exist before doing any work */
   for (int i = 0; i < npkgs; i++) {
@@ -964,7 +966,7 @@ void cmd_sync(int argc, char **argv) {
   char *pkgs[256];
   int npkgs = lpm_parse_flags(argc, argv, &flags, pkgs, 256);
   if (npkgs == 0)
-    die("No package specified.\nUsage: lpm -S <package>");
+    die("No package specified.\nUsage: lpm install <package>");
 
   /* ── --dry-run: preview, no side effects ── */
   if (flags.dry_run) {
@@ -1178,7 +1180,7 @@ void cmd_check(int argc, char **argv) {
   check_root();
   init_dirs();
   if (argc == 0)
-    die("No package specified.\nUsage: lpm -Sc <package>");
+    die("No package specified.\nUsage: lpm verify <package>");
 
   LpmConfig cfg;
   lpm_config_load(LPM_CONF_FILE, &cfg);
@@ -1263,7 +1265,7 @@ void cmd_remove(int argc, char **argv) {
   char *pkgs[64];
   int npkgs = lpm_parse_flags(argc, argv, &flags, pkgs, 64);
   if (npkgs == 0)
-    die("No package specified.\nUsage: lpm -R <package> [--force] [--no-confirm]");
+    die("No package specified.\nUsage: lpm remove <package>");
 
   /* audit log when elevated flags are used */
   if (flags.force || flags.no_confirm) {

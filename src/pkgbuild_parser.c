@@ -196,6 +196,7 @@ static int parse_pkgbuild_c(const char *pbfile, PkgMeta *m) {
     memset(&st, 0, sizeof(st));
 
     int line_no = 0;
+    int brace_depth = 0;   /* >0 = inside a function body, skip key=value */
     char line[4096];
     while (fgets(line, sizeof(line), fp)) {
         line_no++;
@@ -203,6 +204,13 @@ static int parse_pkgbuild_c(const char *pbfile, PkgMeta *m) {
 
         if (*p == '#' || *p == '\0' || *p == '\n') continue;
         rstrip(p);
+
+        /* track brace depth to skip function bodies */
+        for (char *c = p; *c; c++) {
+            if (*c == '{') brace_depth++;
+            else if (*c == '}') { if (brace_depth > 0) brace_depth--; }
+        }
+        if (brace_depth > 0) continue;  /* inside function body — skip */
 
         /* ── function declarations: build() / package() / check() ── */
         {
@@ -248,7 +256,10 @@ static int parse_pkgbuild_c(const char *pbfile, PkgMeta *m) {
         }
 
         char key[64];
-        int klen = (int)(eq - p) - 1; /* -1 for the space before = */
+        /* walk backwards from eq to skip ALL spaces/tabs before = */
+        char *ke = eq - 1;
+        while (ke > p && (*ke == ' ' || *ke == '\t')) ke--;
+        int klen = (int)(ke - p + 1);
         if (klen <= 0 || klen >= (int)sizeof(key)) continue;
         strncpy(key, p, (size_t)klen);
         key[klen] = '\0';
