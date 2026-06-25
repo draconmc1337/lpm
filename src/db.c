@@ -7,6 +7,7 @@
 /* format: pkgname=ver-rel  (one per line) */
 
 int db_is_installed(const char *pkgname) {
+  DBG(3, "db_is_installed(%s)", pkgname);
   FILE *f = fopen(LPM_DB, "r");
   if (!f)
     return 0;
@@ -26,6 +27,7 @@ int db_is_installed(const char *pkgname) {
 }
 
 char *db_get_version(const char *pkgname) {
+  DBG(3, "db_get_version(%s)", pkgname);
   FILE *f = fopen(LPM_DB, "r");
   if (!f)
     return NULL;
@@ -44,15 +46,19 @@ char *db_get_version(const char *pkgname) {
 }
 
 void db_add(const char *pkgname, const char *ver, const char *rel) {
+  DBG(3, "db_add(%s, %s-%s)", pkgname, ver, rel);
   db_remove(pkgname);
   FILE *f = fopen(LPM_DB, "a");
   if (!f)
     die("cannot write to DB: %s", LPM_DB);
   fprintf(f, "%s=%s-%s\n", pkgname, ver, rel);
+  fflush(f);
+  fsync(fileno(f));
   fclose(f);
 }
 
 void db_remove(const char *pkgname) {
+  DBG(3, "db_remove(%s)", pkgname);
   FILE *f = fopen(LPM_DB, "r");
   if (!f)
     return;
@@ -77,12 +83,14 @@ void db_remove(const char *pkgname) {
     fputs(line, tmp);
   }
   fclose(f);
+  fflush(tmp);
+  fsync(fileno(tmp));
   fclose(tmp);
   rename(tmp_path, LPM_DB);
 }
 
 static int scan_pkgdir(const char *base, const char *rel, const char *pkgdir,
-                       FILE *fp) {
+                       FILE *fp, FILE *fpmeta) {
   char cur[MAX_STR];
   if (rel[0])
     snprintf(cur, sizeof(cur), "%s/%s", base, rel);
@@ -123,13 +131,33 @@ static int scan_pkgdir(const char *base, const char *rel, const char *pkgdir,
       continue;
 
     if (S_ISDIR(st.st_mode)) {
-      count += scan_pkgdir(base, rel_child, pkgdir, fp);
+      count += scan_pkgdir(base, rel_child, pkgdir, fp, fpmeta);
     } else {
       char dest[MAX_STR];
       snprintf(dest, sizeof(dest), "/%s", rel_child);
       if (!dest[1])
         continue;
       fprintf(fp, "%s\n", dest);
+
+      /* ── files.meta: type, mode, uid, gid, sha256 ──────────────────── *
+       * Used by `lpm verify` (levels 1-3: existence, checksum,           *
+       * permission/ownership). sha256 only computed for regular files;  *
+       * symlinks/devices/etc. record "-" and skip checksum/perm checks. */
+      if (fpmeta) {
+        char type = 'o';
+        char hexsum[65] = "-";
+        if (S_ISREG(st.st_mode)) {
+          type = 'f';
+          if (sha256_file(abs_in_pkgdir, hexsum) != 0)
+            strcpy(hexsum, "-");
+        } else if (S_ISLNK(st.st_mode)) {
+          type = 'l';
+        }
+        fprintf(fpmeta, "%s\t%c\t%04o\t%d\t%d\t%s\n",
+                dest, type, (unsigned)(st.st_mode & 07777),
+                (int)st.st_uid, (int)st.st_gid, hexsum);
+      }
+
       count++;
     }
   }
@@ -146,6 +174,9 @@ void db_files_save(const char *pkgname, const char *pkgdir) {
   char listpath[MAX_STR + 64];
   snprintf(listpath, sizeof(listpath), "%s/files.list", dir);
 
+  char metapath[MAX_STR + 64];
+  snprintf(metapath, sizeof(metapath), "%s/files.meta", dir);
+
   FILE *fp = fopen(listpath, "w");
   if (!fp) {
     fprintf(stderr, "\033[0;31merror:\033[0m cannot write files.list for %s\n",
@@ -153,8 +184,15 @@ void db_files_save(const char *pkgname, const char *pkgdir) {
     return;
   }
 
-  int n = scan_pkgdir(pkgdir, "", pkgdir, fp);
+  FILE *fpmeta = fopen(metapath, "w");
+  if (!fpmeta)
+    fprintf(stderr, "\033[1;33mwarning:\033[0m cannot write files.meta for %s "
+                     "— `lpm verify` checksum/permission checks unavailable\n",
+            pkgname);
+
+  int n = scan_pkgdir(pkgdir, "", pkgdir, fp, fpmeta);
   fclose(fp);
+  if (fpmeta) fclose(fpmeta);
   fprintf(stdout, "\033[0;36m  ->\033[0m Recorded %d file(s) for %s\n", n,
           pkgname);
 }
@@ -193,6 +231,9 @@ int db_files_remove(const char *pkgname) {
   char dir[MAX_STR];
   snprintf(dir, sizeof(dir), "%s/%s", LPM_FILES_DIR, pkgname);
   unlink(listpath);
+  char metapath[MAX_STR + 64];
+  snprintf(metapath, sizeof(metapath), "%s/files.meta", dir);
+  unlink(metapath);
   rmdir(dir);
   return removed;
 }
@@ -208,16 +249,16 @@ int db_init(void) {
   return 0;
 }
 
-/* ── db_record_install ───────────────────────────────────────────────── */
+/* ── db_record_install ───────────────────────────────────────────────── *
+ * Records name/version/release in the main DB. File manifest recording
+ * (files.list/files.meta) is done once by pkg_merge() -> db_files_save(),
+ * which must run before this so it can read files.list back for the
+ * rollback journal — do not duplicate that call here.                   */
 int db_record_install(const Package *pkg, const char *root) {
   (void)root; /* rootfs prefix — reserved for future use */
 
   /* reuse db_add which already handles dedup */
   db_add(pkg->name, pkg->version, pkg->release);
-
-  /* record files from pkg->pkg_dir if set */
-  if (pkg->pkg_dir[0])
-    db_files_save(pkg->name, pkg->pkg_dir);
 
   return 0;
 }
@@ -244,22 +285,8 @@ int db_query(const char *name, InstalledPkg *out) {
     free(ver);
   }
 
-  /* load file list */
-  char listpath[MAX_STR + 64];
-  snprintf(listpath, sizeof(listpath), "%s/%s/files.list", LPM_FILES_DIR, name);
-  FILE *fp = fopen(listpath, "r");
-  if (fp) {
-    char line[MAX_STR];
-    while (fgets(line, sizeof(line), fp) && out->nfiles < LPM_MAX_FILES) {
-      line[strcspn(line, "\n")] = '\0';
-      if (!line[0])
-        continue;
-      int idx = out->nfiles++;
-      strncpy(out->files[idx], line, LPM_PATH_MAX - 1);
-      out->files[idx][LPM_PATH_MAX - 1] = '\0';
-    }
-    fclose(fp);
-  }
+  /* files[][] removed from InstalledPkg — use db_list_files() /
+   * db_files_remove() / db_check_integrity() to access files.list. */
   return 0;
 }
 

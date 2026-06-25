@@ -1,4 +1,5 @@
 #include "lpm.h"
+#include <dirent.h>
 
 /* ═══════════════════════════════════════════════════════════════════════
  * pkg_merge — safe merge of staged pkgdir into root
@@ -29,6 +30,25 @@ int pkg_merge(Package *pkg, const char *root, Transaction *tx) {
         return -1;
     }
 
+    /* ── 2b. symlink attack guard ── */
+    {
+        DIR *d = opendir(pkg->pkg_dir);
+        if (d) {
+            struct dirent *ent;
+            while ((ent = readdir(d))) {
+                if (!strcmp(ent->d_name, ".") || !strcmp(ent->d_name, "..")) continue;
+                char src[LPM_PATH_MAX * 2], dst[LPM_PATH_MAX];
+                snprintf(src, sizeof(src), "%s/%s", pkg->pkg_dir, ent->d_name);
+                snprintf(dst, sizeof(dst), "/%s", ent->d_name);
+                if (safety_guard_symlinks(src, dst) != 0) {
+                    closedir(d);
+                    return -1;
+                }
+            }
+            closedir(d);
+        }
+    }
+
     /* ── 3. config file protection ── */
     safety_backup_configs(pkg, root);
     safety_protect_configs(pkg, pkg->pkg_dir, root);
@@ -51,11 +71,24 @@ int pkg_merge(Package *pkg, const char *root, Transaction *tx) {
     db_files_save(pkg->name, pkg->pkg_dir);
     pkg->state = PKG_STATE_MERGED;
 
-    /* record in transaction journal for rollback */
+    /* record merged files into transaction journal for rollback */
     if (tx) {
-        /* append merged files to tx->merged_files if capacity allows */
-        /* (full rollback journal is handled by transaction.c) */
-        (void)tx;
+        char listpath[LPM_PATH_MAX + 64];
+        snprintf(listpath, sizeof(listpath), "%s/%s/files.list",
+                 LPM_FILES_DIR, pkg->name);
+        FILE *flp = fopen(listpath, "r");
+        if (flp) {
+            char line[LPM_PATH_MAX];
+            while (fgets(line, sizeof(line), flp) &&
+                   tx->nmerged < LPM_MAX_FILES) {
+                line[strcspn(line, "\n")] = '\0';
+                if (!line[0]) continue;
+                strncpy(tx->merged_files[tx->nmerged], line, LPM_PATH_MAX - 1);
+                tx->merged_files[tx->nmerged][LPM_PATH_MAX - 1] = '\0';
+                tx->nmerged++;
+            }
+            fclose(flp);
+        }
     }
 
     printf(C_GREEN "  ->" C_RESET " Merged %s into %s\n", pkg->name, root);

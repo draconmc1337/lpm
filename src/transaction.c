@@ -76,7 +76,7 @@ int tx_commit(Transaction *tx, const char *root) {
         if (pkg->has_post_install)
             pkg_run_hook("post_install", pkg);
 
-        printf(C_GREEN "==> Installed" C_RESET " %s %s-%s\n",
+        printf("Installed %s-%s-%s [OK]\n",
                pkg->name, pkg->version, pkg->release);
     }
 
@@ -89,8 +89,7 @@ int tx_rollback(Transaction *tx, const char *root) {
     if (tx->committed) return 0;
     if (tx->nmerged == 0) return 0;
 
-    printf(C_YELLOW "::" C_RESET " Rolling back transaction (%d files)...\n",
-           tx->nmerged);
+    printf(":: Rolling back transaction (%d files)...\n", tx->nmerged);
 
     /* remove in reverse order */
     for (int i = tx->nmerged - 1; i >= 0; i--) {
@@ -98,9 +97,7 @@ int tx_rollback(Transaction *tx, const char *root) {
         snprintf(full, sizeof(full), "%s/%s", root, tx->merged_files[i]);
 
         if (unlink(full) != 0 && errno != ENOENT) {
-            fprintf(stderr,
-                C_YELLOW "warning:" C_RESET
-                " rollback: cannot remove %s: %s\n",
+            fprintf(stderr, "warning: rollback: cannot remove %s: %s\n",
                 full, strerror(errno));
         }
     }
@@ -112,6 +109,6 @@ int tx_rollback(Transaction *tx, const char *root) {
             safety_restore_configs(pkg, root);
     }
 
-    printf(C_YELLOW "::" C_RESET " Rollback complete.\n");
+    printf(":: Rollback complete.\n");
     return 0;
 }

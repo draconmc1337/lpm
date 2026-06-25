@@ -37,6 +37,7 @@ typedef struct {
 typedef struct {
     llpm_trans_type_t type;
     llpm_trans_pkg_t  pkg;
+    int               nfiles_removed; /* set by commit for REMOVE ops */
 } llpm_trans_op_t;
 
 typedef struct llpm_trans {
@@ -51,9 +52,13 @@ typedef struct llpm_trans {
     int              nmissing;
     char             conflicts[64][LLPM_NAME_MAX * 2 + 8];
     int              nconflicts;
+    /* version-upgrade required: "pkgname:installed:op+required" */
+    char             upgrades_needed[64][LLPM_NAME_MAX * 3];
+    int              nupgrades_needed;
 } llpm_trans_t;
 
 llpm_trans_t *llpm_trans_init(llpm_handle_t *h, int flags);
+int llpm_trans_add_remove(llpm_trans_t *t, const char *name);
 int llpm_trans_prepare(llpm_trans_t *t);
 int llpm_trans_commit(llpm_trans_t *t);
 int llpm_trans_release(llpm_trans_t *t);

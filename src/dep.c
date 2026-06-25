@@ -8,9 +8,14 @@
 typedef struct {
     char name[MAX_STR];
     char ver[MAX_STR];
-    char folder[16];   /* base / extra / lotus / ? */
+    char inst_ver[MAX_STR];       /* currently installed version, "" if none */
+    char required_by[MAX_STR];    /* parent package that requires this dep */
+    char constraint[64];          /* e.g. ">=2.3" — empty means any version */
+    char folder[16];              /* base / extra / lotus / ? */
     int  installed;
+    int  ver_too_old;             /* 1 = installed but version constraint fails */
     int  has_src;
+    int  is_binary;               /* 1 = pkgtype=binary, will sync .lpkg */
     int  depth;
 } DepNode;
 
@@ -217,21 +222,64 @@ static void collect(const char *pkgname, int depth) {
     node.has_src = (stat(pbfile, &st) == 0);
 
     if (node.has_src) {
+        /* check pkgtype via fast C parser — bash parser misses it */
+        PkgMeta fm; memset(&fm, 0, sizeof(fm));
+        if (pkgbuild_parse_fast(pbfile, &fm) == 0)
+            node.is_binary = fm.is_binary;
+
         Pkg pkg;
         if (parse_cached(pkgname, &pkg) != 0) {
             strncpy(node.ver, "?", MAX_STR - 1);
             resolved[nresolved++] = node;
             return;
         }
-        snprintf(node.ver, MAX_STR, "%s", pkg.pkgver);
+        /* prefer fast parser version (handles "key = value" format) */
+        if (fm.pkgver[0])
+            snprintf(node.ver, MAX_STR, "%s", fm.pkgver);
+        else
+            snprintf(node.ver, MAX_STR, "%s", pkg.pkgver);
         resolved[nresolved++] = node;
         for (int i = 0; i < pkg.ndepends; i++) {
             DepSpec dep;
             dep_parse(pkg.depends[i], &dep);
-            char *inst_ver = db_get_version(dep.name);
-            int ok = dep_constraint_satisfied(&dep, inst_ver);
-            free(inst_ver);
-            if (!ok) collect(dep.name, depth + 1);
+            char *iv = db_get_version(dep.name);
+            int ok = dep_constraint_satisfied(&dep, iv);
+
+            if (!ok) {
+                collect(dep.name, depth + 1);
+                /* after collect, find the node and annotate it */
+                int nidx = index_of(dep.name);
+                if (nidx >= 0) {
+                    if (iv && iv[0])
+                        snprintf(resolved[nidx].inst_ver,
+                                 MAX_STR, "%s", iv);
+                    snprintf(resolved[nidx].required_by,
+                             MAX_STR, "%s", pkgname);
+                    /* build constraint string e.g. ">=2.3" */
+                    const char *opstr =
+                        dep.op == LLPM_DEP_GE ? ">=" :
+                        dep.op == LLPM_DEP_GT ? ">"  :
+                        dep.op == LLPM_DEP_LE ? "<=" :
+                        dep.op == LLPM_DEP_LT ? "<"  :
+                        dep.op == LLPM_DEP_EQ ? "="  : "";
+                    {
+                        char *_dst = resolved[nidx].constraint;
+                        /* write opstr (max 2 chars) */
+                        int _ol = 0;
+                        while (opstr[_ol] && _ol < 2) { _dst[_ol] = opstr[_ol]; _ol++; }
+                        /* append version, truncate to 61 chars */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wstringop-truncation"
+                        strncpy(_dst + _ol, dep.ver, 63 - _ol);
+#pragma GCC diagnostic pop
+                        _dst[63] = (char)0;
+                    }
+                    /* mark as version-too-old if was installed */
+                    if (iv && iv[0])
+                        resolved[nidx].ver_too_old = 1;
+                }
+            }
+            free(iv);
         }
     } else {
         strncpy(node.ver, "?", MAX_STR - 1);
@@ -288,74 +336,128 @@ int dep_resolve_queue(const char *pkgname,
     return n;
 }
 
-/* ── print emerge-style package list ────────────────────────────────────── */
+/* ── print_pkg_list ─────────────────────────────────────────────────────── *
+ * Split output into Binary and Source sections.                            *
+ * Each entry shows: repo/name-ver  [tag]  constraint_info                  */
 static void print_pkg_list(void) {
-    int to_build = 0;
-    for (int i = 0; i < nresolved; i++)
-        if (resolved[i].has_src && !resolved[i].installed) to_build++;
-
-    printf("\n");
+    int n_bin = 0, n_src = 0, n_inst = 0, n_missing = 0, n_upgrade = 0;
     for (int i = 0; i < nresolved; i++) {
         DepNode *n = &resolved[i];
-
-        /* [src Y/N] */
-        const char *sc = n->has_src ? C_GREEN : C_YELLOW;
-        const char  sy = n->has_src ? 'Y' : 'N';
-
-        /* status: N=new, R=reinstall */
-        char status = n->installed ? 'R' : 'N';
-        const char *stc = n->installed ? C_CYAN : C_GREEN;
-
-        /* installed marker */
-        const char *inst = n->installed
-            ? " " C_CYAN "[installed]" C_RESET : "";
-
-        printf("[%ssrc %c" C_RESET " %s%c" C_RESET "] "
-               C_BOLD "%s" C_RESET "/"
-               C_BOLD "%s" C_RESET "-"
-               "%s"
-               "%s\n",
-               sc, sy,
-               stc, status,
-               n->folder[0] != '?' ? n->folder : "repo",
-               n->name,
-               n->ver[0] ? n->ver : "?",
-               inst);
+        if (n->installed && !n->ver_too_old) { n_inst++;    continue; }
+        if (!n->has_src)                     { n_missing++; continue; }
+        if (n->ver_too_old)                    n_upgrade++;
+        if (n->is_binary) n_bin++;
+        else              n_src++;
     }
+    int n_total = n_bin + n_src + n_upgrade;
 
+    /* ── header ─────────────────────────────────────────────────────── */
     printf("\n");
-    printf("Total: " C_BOLD "%d" C_RESET
-           "  installed: " C_CYAN "%d" C_RESET
-           "  to build: " C_YELLOW "%d" C_RESET,
-           nresolved,
-           nresolved - to_build,
-           to_build);
+    printf("  " C_BOLD "Packages (%d)" C_RESET, n_total);
+    if (n_bin > 0 && n_src > 0)
+        printf("  " C_BLUE "[%d binary" C_RESET
+               ", " C_YELLOW "%d source" C_RESET "]", n_bin, n_src);
+    else if (n_bin > 0)
+        printf("  " C_BLUE "[%d binary]" C_RESET, n_bin);
+    else if (n_src > 0)
+        printf("  " C_YELLOW "[%d source]" C_RESET, n_src);
+    if (n_upgrade > 0)
+        printf("  " C_CYAN "[%d upgrade]" C_RESET, n_upgrade);
+    printf("\n\n");
 
-    int missing = 0;
-    for (int i = 0; i < nresolved; i++)
-        if (!resolved[i].has_src) missing++;
-    if (missing)
-        printf("  no PKGBUILD: " C_RED "%d" C_RESET, missing);
-    printf("\n");
+    /* ── binary section ─────────────────────────────────────────────── */
+    int printed_bin_hdr = 0;
+    for (int i = 0; i < nresolved; i++) {
+        DepNode *n = &resolved[i];
+        if (!n->is_binary) continue;
+        if (n->installed && !n->ver_too_old) continue;
+        if (!n->has_src) continue;
 
-    /* build order */
-    if (to_build > 0) {
-        printf("\n  Build order:\n");
-        int order = 1;
-        for (int i = 0; i < nresolved; i++) {
-            DepNode *n = &resolved[i];
-            if (n->has_src && !n->installed)
-                printf("    " C_CYAN "%d." C_RESET " %s/%s-%s\n",
-                       order++, n->folder[0] != '?' ? n->folder : "repo",
-                       n->name, n->ver[0] ? n->ver : "?");
+        if (!printed_bin_hdr) {
+            printf("  " C_BLUE C_BOLD "Binary:" C_RESET "\n");
+            printed_bin_hdr = 1;
         }
+
+        const char *repo = n->folder[0] != '?' ? n->folder : "repo";
+        char ver_note[160] = "";
+        if (n->ver_too_old && n->inst_ver[0] && n->constraint[0])
+            snprintf(ver_note, sizeof(ver_note),
+                     "  " C_YELLOW "%s → %s" C_RESET
+                     " (required by %s)",
+                     n->inst_ver, n->constraint,
+                     n->required_by[0] ? n->required_by : "?");
+        else if (n->constraint[0])
+            snprintf(ver_note, sizeof(ver_note),
+                     "  " C_CYAN "%s" C_RESET
+                     " (required by %s)",
+                     n->constraint,
+                     n->required_by[0] ? n->required_by : "?");
+
+        printf("    " C_BLUE "↓" C_RESET
+               " " C_BOLD "%s" C_RESET "/" C_CYAN "%s" C_RESET
+               "  %s%s\n",
+               repo, n->name,
+               n->ver[0] ? n->ver : "?",
+               ver_note);
     }
-    printf("\n");
+    if (printed_bin_hdr) printf("\n");
+
+    /* ── source section ─────────────────────────────────────────────── */
+    int printed_src_hdr = 0;
+    for (int i = 0; i < nresolved; i++) {
+        DepNode *n = &resolved[i];
+        if (n->is_binary) continue;
+        if (n->installed && !n->ver_too_old) continue;
+        if (!n->has_src) continue;
+
+        if (!printed_src_hdr) {
+            printf("  " C_YELLOW C_BOLD "Source:" C_RESET "\n");
+            printed_src_hdr = 1;
+        }
+
+        const char *repo = n->folder[0] != '?' ? n->folder : "repo";
+        char ver_note[160] = "";
+        if (n->ver_too_old && n->inst_ver[0] && n->constraint[0])
+            snprintf(ver_note, sizeof(ver_note),
+                     "  " C_YELLOW "%s → %s" C_RESET
+                     " (required by %s)",
+                     n->inst_ver, n->constraint,
+                     n->required_by[0] ? n->required_by : "?");
+        else if (n->constraint[0])
+            snprintf(ver_note, sizeof(ver_note),
+                     "  " C_CYAN "%s" C_RESET
+                     " (required by %s)",
+                     n->constraint,
+                     n->required_by[0] ? n->required_by : "?");
+
+        printf("    " C_YELLOW "⚙" C_RESET
+               " " C_BOLD "%s" C_RESET "/" C_CYAN "%s" C_RESET
+               "  %s%s\n",
+               repo, n->name,
+               n->ver[0] ? n->ver : "?",
+               ver_note);
+    }
+    if (printed_src_hdr) printf("\n");
+
+    /* ── missing ─────────────────────────────────────────────────────── */
+    if (n_missing > 0) {
+        printf("  " C_RED C_BOLD "Not found:" C_RESET "\n");
+        for (int i = 0; i < nresolved; i++) {
+            if (resolved[i].has_src) continue;
+            printf("    " C_RED "✗" C_RESET " %s\n", resolved[i].name);
+        }
+        printf("\n");
+    }
+
+    /* ── summary line ───────────────────────────────────────────────── */
+    printf("  " C_GRAY "download: %d binary  build: %d source"
+           C_RESET "\n\n",
+           n_bin, n_src);
 }
 
 /* ── cmd_deptree ─────────────────────────────────────────────────────────── */
 void cmd_deptree(int argc, char **argv) {
-    if (argc == 0) die("No package specified.\nUsage: lpm -D <package>");
+    if (argc == 0) die("No package specified.\nUsage: lpm deps <package>");
 
     /* collect all packages into single resolved list */
     nresolved = 0;
@@ -401,7 +503,7 @@ int dep_resolve_queue_multi(char **pkgnames, int npkgs,
 }
 
 /* ── dep_meta_cache_invalidate ───────────────────────────────────────────── */
-/* Invalidate in-process PkgMeta cache (call after lpm -Sy) */
+/* Invalidate in-process PkgMeta cache (call after lpm update) */
 void dep_meta_cache_invalidate(void) {
     memset(pkg_cached, 0, sizeof(pkg_cached));
 }

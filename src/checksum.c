@@ -36,3 +36,53 @@ int cksum_verify(const char *path, const char *expected, CksumType type) {
 }
 
 #pragma GCC diagnostic pop
+
+/* ── checksum_parse_unified ─────────────────────────────────────────── *
+ * Parse "algo:hexhash" or legacy bare hex (auto-detect by length).     *
+ *                                                                        *
+ * Input:  "sha512:aabb..."  "sha256:aabb..."  "md5:aabb..."             *
+ *         "SKIP"            bare hex (64 → sha256, 128 → sha512, etc.) *
+ *                                                                        *
+ * Output: fills *hash_out (just the hex part), returns CksumType.      *
+ * Returns CKSUM_SKIP for "SKIP" or empty, CKSUM_AUTO on parse error.   */
+CksumType checksum_parse_unified(const char *spec,
+                                  char *hash_out, size_t hash_outsz) {
+    if (!spec || !spec[0] || !strcmp(spec, "SKIP")) {
+        if (hash_out) hash_out[0] = (char)0;
+        return CKSUM_SKIP;
+    }
+
+    /* "algo:hex" format */
+    const char *colon = strchr(spec, ':');
+    if (colon) {
+        const char *algo = spec;
+        size_t alen = (size_t)(colon - algo);
+        const char *hex  = colon + 1;
+
+        if (hash_out)
+            strncpy(hash_out, hex, hash_outsz - 1);
+
+        if      (alen == 6 && !strncmp(algo, "sha512", 6)) return CKSUM_SHA512;
+        else if (alen == 6 && !strncmp(algo, "sha256", 6)) return CKSUM_SHA256;
+        else if (alen == 3 && !strncmp(algo, "md5",    3)) return CKSUM_MD5;
+        else if (alen == 4 && !strncmp(algo, "sha1",   4)) return CKSUM_SHA256; /* treat as sha256 */
+        return CKSUM_SKIP;
+    }
+
+    /* legacy bare hex — auto-detect by length */
+    size_t n = strlen(spec);
+    int all_hex = 1;
+    for (size_t k = 0; k < n && all_hex; k++) {
+        char c = spec[k];
+        all_hex = (c>='0'&&c<='9')||(c>='a'&&c<='f')||(c>='A'&&c<='F');
+    }
+    if (!all_hex) return CKSUM_SKIP;
+
+    if (hash_out)
+        strncpy(hash_out, spec, hash_outsz - 1);
+
+    if      (n == 128) return CKSUM_SHA512;
+    else if (n == 64)  return CKSUM_SHA256;
+    else if (n == 32)  return CKSUM_MD5;
+    return CKSUM_SKIP;
+}

@@ -75,3 +75,16 @@ llpm_errno_t llpm_errno(const llpm_handle_t *h) {
 
   return h->last_err;
 }
+
+/* ── llpm_handle_set_db_ops ─────────────────────────────────────────── *
+ * Register db callbacks from the lpm binary into the handle.           *
+ * Must be called before llpm_trans_prepare/commit for REMOVE ops.      */
+void llpm_handle_set_db_ops(llpm_handle_t *h,
+    int (*is_installed)(const char *),
+    int (*files_remove)(const char *),
+    void (*db_remove_fn)(const char *)) {
+    if (!h) return;
+    h->cb_is_installed = is_installed;
+    h->cb_files_remove = files_remove;
+    h->cb_remove       = db_remove_fn;
+}

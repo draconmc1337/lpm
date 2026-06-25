@@ -72,13 +72,13 @@ doas make dev-install    # installs lpm-dev to /usr/bin/lpm-dev
 ## Commands
 
 ```sh
-lpm -S   <pkg...>   # fetch PKGBUILD from repo + build + install
+lpm install   <pkg...>   # fetch PKGBUILD from repo + build + install
 lpm -bi  <pkg...>   # build + install from local PKGBUILD (offline)
-lpm -Sy  <pkg...>   # fetch PKGBUILD only, don't build
+lpm update  <pkg...>   # fetch PKGBUILD only, don't build
 lpm -r   <pkg...>   # remove package(s)
 lpm -u   [pkg...]   # update — all installed if no args
 lpm -s   <term>     # search available packages
-lpm -D   <pkg...>   # show dependency tree
+lpm deps   <pkg...>   # show dependency tree
 lpm -qi  <pkg...>   # package info
 lpm -c   <pkg...>   # run check() test suite
 lpm -rcc [pkg...]   # clean build cache

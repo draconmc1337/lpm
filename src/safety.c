@@ -1,4 +1,6 @@
 #include "lpm.h"
+#include "llpm/handle.h"
+#include "llpm/keyring.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -494,12 +496,21 @@ volatile sig_atomic_t g_cancel = 0;
 /* Return values:
  *   0  — lock acquired OK
  *  -1  — permission denied (not root)
- *  -2  — another instance is running */
+ *  -2  — another instance is running
+ *  -3  — root, but lock file open() failed for another reason (see stderr) */
 int lpm_lock_acquire(void) {
+    if (geteuid() != 0)
+        return -1;
+
+    /* minimal/LiveCD rootfs may not have /var/lock yet */
+    util_mkdirp("/var/lock", 0755);
+
     g_lock_fd = open(LPM_LOCK_FILE, O_CREAT | O_RDWR, 0644);
     if (g_lock_fd < 0) {
-        /* EACCES / EPERM → not root, don't pretend it's a lock conflict */
-        return -1;
+        fprintf(stderr, C_RED "error: " C_RESET
+                "cannot open lock file %s: %s\n",
+                LPM_LOCK_FILE, strerror(errno));
+        return -3;
     }
 
     struct flock fl = {
@@ -530,6 +541,51 @@ void lpm_lock_release(void) {
         g_lock_fd = -1;
         unlink(LPM_LOCK_FILE);
     }
+}
+
+/* ── lpm_sig_verify ──────────────────────────────────────────────────── *
+ * Thin wrapper around llpm_keyring_verify():                             *
+ *   - creates a temporary llpm_handle_t pointed at /etc/lpm/gnupg       *
+ *   - loads the keyring (trusted key list)                               *
+ *   - verifies <filepath> against <filepath>.sig (or <sigpath> if given) *
+ *   - prints a human-readable error and returns -1 on any failure        *
+ *   - returns 0 on success                                               *
+ *                                                                        *
+ * sig_required=1 → missing .sig is a hard error (enforced for all       *
+ *   packages once signing infrastructure is fully deployed).             *
+ * sig_required=0 → missing .sig is OK, but a present-but-bad .sig       *
+ *   still fails (TOFU: once you sign, the sig must be valid).           */
+int lpm_sig_verify(const char *filepath, const char *sigpath, int sig_required) {
+    llpm_errno_t err = LLPM_ERR_OK;
+    llpm_handle_t *h = llpm_initialize("/", LPM_DB, &err);
+    if (!h) {
+        fprintf(stderr, C_RED "error: " C_RESET
+                "could not initialize keyring handle (errno %d)\n", err);
+        return -1;
+    }
+    llpm_keyring_load(h);
+
+    int rc = llpm_keyring_verify(h, filepath, sigpath, sig_required);
+    if (rc != 0) {
+        const char *detail = h->last_err_detail[0]
+                             ? h->last_err_detail
+                             : "signature verification failed";
+        fprintf(stderr, C_RED "error: " C_RESET
+                "signature check failed: %s\n"
+                "  file: %s\n",
+                detail, filepath);
+        if (h->last_err == LLPM_ERR_KEY_UNTRUSTED)
+            fprintf(stderr,
+                "  hint: trust the signing key with: "
+                C_CYAN "lpm key trust <fingerprint>" C_RESET "\n");
+        else if (h->last_err == LLPM_ERR_SIG_MISSING)
+            fprintf(stderr,
+                "  hint: .sig file missing — package may not have been "
+                "signed by a Lotus maintainer\n");
+    }
+
+    llpm_release(h);
+    return rc;
 }
 
 #pragma GCC diagnostic pop

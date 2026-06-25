@@ -25,7 +25,7 @@
 #include <unistd.h>
 
 /* ── version ─────────────────────────────────────────────────────────── */
-#define LPM_VERSION "Beta 1 build 4350"
+#define LPM_VERSION "1.4.1"
 #define LPM_LOCK_FILE "/var/lock/lpm.lock"
 #define LPM_DB_DIR "/var/lib/lpm/db"
 #define LPM_DB "/var/lib/lpm/db/installed"
@@ -112,8 +112,9 @@ typedef enum { DL_AUTO = 0, DL_WGET, DL_CURL, DL_NONE } Downloader;
 typedef struct {
   char url[LPM_URL_MAX];
   char filename[LPM_NAME_MAX];
-  char checksum[129];
-  CksumType cksum_type;
+  /* unified: "sha512:hex", "sha256:hex", "md5:hex", "SKIP", or "" */
+  char checksum[200];
+  CksumType cksum_type;  /* derived from checksum prefix at parse time */
 } Source;
 
 /* ── Package (new API) ───────────────────────────────────────────────── */
@@ -142,6 +143,8 @@ typedef struct Package {
   int nsources;
   char backup[LPM_MAX_BACKUP][LPM_PATH_MAX];
   int nbackup;
+  char groups[LPM_MAX_DEPS][LPM_NAME_MAX]; /* package groups e.g. "xlib" */
+  int ngroups;
 
   int has_pre_install, has_post_install;
   int has_pre_remove, has_post_remove;
@@ -169,15 +172,24 @@ typedef struct {
   int nreplaces;
   char source[LPM_MAX_SOURCES][LPM_PATH_MAX];
   int nsources;
+  /* legacy fields — kept for bash parser compat */
   char sha256sums[LPM_MAX_SOURCES][129];
   char sha512sums[LPM_MAX_SOURCES][129];
   char md5sums[LPM_MAX_SOURCES][33];
+  /* unified checksum: "sha512:hex" / "sha256:hex" / "md5:hex" / "SKIP" */
+  char checksums[LPM_MAX_SOURCES][200];
   char pbfile[LPM_PATH_MAX];
   int has_check;
   int has_uninstall;
+  char groups[LPM_MAX_DEPS][LPM_NAME_MAX];
+  int ngroups;
 } Pkg;
 
 /* ── InstalledPkg ────────────────────────────────────────────────────── */
+/* NOTE: files are stored on disk at LPM_FILES_DIR/<name>/files.list and
+ * accessed via db_list_files() / db_files_remove() / db_check_integrity().
+ * They are NOT embedded here — files[LPM_MAX_FILES][LPM_PATH_MAX] would be
+ * 256 MB per instance, causing stack overflows and heap exhaustion. */
 typedef struct {
   char name[LPM_NAME_MAX];
   char version[LPM_VER_MAX];
@@ -187,8 +199,6 @@ typedef struct {
   int reason;
   int64_t install_time;
   size_t install_size;
-  char files[LPM_MAX_FILES][LPM_PATH_MAX];
-  int nfiles;
 } InstalledPkg;
 
 /* ── LpmFlags (CLI flags) ────────────────────────────────────────────── *
@@ -332,7 +342,7 @@ typedef struct {
 /* ── PkgMeta — fast parser cache struct (pkgbuild_parser.c) ─────────── */
 #define LPM_META_CACHE_DIR "/var/lib/lpm/cache"
 #define LPM_META_MAGIC   0x4C504D43
-#define LPM_META_VERSION 3
+#define LPM_META_VERSION 5
 
 typedef struct __attribute__((packed)) {
   uint32_t magic;
@@ -350,7 +360,14 @@ typedef struct __attribute__((packed)) {
   char conflicts[LPM_MAX_DEPS][LPM_NAME_MAX];
   char replaces[LPM_MAX_DEPS][LPM_NAME_MAX]; /* package rename support */
   uint8_t has_build, has_check, has_package, has_remove;
-  uint8_t is_binary; /* pkgtype = binary|bin → 1, source|src → 0 */
+  uint8_t is_binary;  /* pkgtype = binary|bin → 1, source|src → 0 */
+  long    dl_size;    /* download size in bytes (binary only) */
+  long    inst_size;  /* installed size in bytes (binary only) */
+  uint8_t nsources;
+  char    source[LPM_MAX_SOURCES][LPM_PATH_MAX];   /* source URLs/files */
+  char    checksums[LPM_MAX_SOURCES][200];          /* "algo:hex" unified */
+  char    groups[LPM_MAX_DEPS][LPM_NAME_MAX];       /* package groups */
+  uint8_t ngroups;
 } PkgMeta;
 
 /* ── globals ─────────────────────────────────────────────────────────── */
@@ -399,13 +416,15 @@ char *reverse_deps(const char *target);
 /* ── dep.c ───────────────────────────────────────────────────────────── */
 void cmd_deptree(int argc, char **argv);
 /* build_all=0: -S mode (skip installed)
- * build_all=1: -Pb mode (collect all, including installed) */
+ * build_all=1: package-build mode (collect all, including installed) */
 int dep_resolve_queue(const char *pkgname, char out[][MAX_STR], int maxout,
                       int build_all);
 /* Collect N packages + toposort once — replaces loop of dep_resolve_queue()×N */
 int dep_resolve_queue_multi(char **pkgnames, int npkgs, char out[][MAX_STR],
                             int maxout, int build_all);
-/* Invalidate in-process PkgMeta cache (call after lpm -Sy) */
+/* Count + print unresolvable deps from last dep_resolve_queue* call. Returns 0 if all deps found. */
+int dep_missing_count(void);
+/* Invalidate in-process PkgMeta cache (call after lpm update) */
 void dep_meta_cache_invalidate(void);
 void dep_set_folder(const char *pkgname, const char *folder);
 int dep_get_recommends(const char *pkgname, char out[][MAX_STR], int maxout);
@@ -417,7 +436,12 @@ int dl_file(const char *url, const char *dest, const char *filename, int slot,
 int dl_fetch_all(FetchJob *jobs, int njobs);
 
 /* ── checksum.c ──────────────────────────────────────────────────────── */
+CksumType checksum_parse_unified(const char *spec,
+                                  char *hash_out, size_t hash_outsz);
 int cksum_verify(const char *path, const char *expected, CksumType type);
+
+/* ── sha256.c ────────────────────────────────────────────────────────── */
+int sha256_file(const char *path, char out_hex[65]);
 
 /* ── build.c ─────────────────────────────────────────────────────────── */
 int pkg_build(Package *pkg, const LpmConfig *cfg);
@@ -425,12 +449,17 @@ int pkg_run_check(Package *pkg);
 int pkg_run_package(Package *pkg);
 int pkg_run_hook(const char *hook, Package *pkg);
 void cmd_sync(int argc, char **argv);
+void cmd_bootstrap(int argc, char **argv);
 void cmd_local(int argc, char **argv);
 void cmd_fetch(int argc, char **argv);
-void cmd_check(int argc, char **argv);
+int  fetch_pkgbuild(const char *name);      /* fetch one PKGBUILD from repo */
+int  lpm_build_package(const char *name);   /* fetch + build + stage package */
+void cmd_check(int argc, char **argv);    /* lpm test <pkg> — runs PKGBUILD check() */
+void cmd_verify(int argc, char **argv);   /* lpm verify [pkg...] — system integrity check */
 void cmd_remove(int argc, char **argv);
 void cmd_update(int argc, char **argv);
-void cmd_suy(int argc, char **argv);
+void cmd_suy(int argc, char **argv);      /* lpm upgrade — check + apply updates */
+void cmd_db_update(int argc, char **argv); /* lpm update — sync repo databases only */
 
 /* ── merge.c ─────────────────────────────────────────────────────────── */
 int pkg_merge(Package *pkg, const char *root, Transaction *tx);
@@ -462,6 +491,7 @@ void tx_record_file(Transaction *tx, const char *path);
 /* ── safety.c ────────────────────────────────────────────────────────── */
 int lpm_lock_acquire(void);
 void lpm_lock_release(void);
+int  lpm_sig_verify(const char *filepath, const char *sigpath, int sig_required);
 int safety_check_conflicts(Package **pkgs, int n, const char *root);
 int safety_check_file_conflicts(const char *pkgdir, const char *pkgname,
                                 int force);
@@ -474,6 +504,8 @@ int safety_guard_symlinks(const char *src_path, const char *dest_path);
 
 /* ── search.c ────────────────────────────────────────────────────────── */
 void cmd_search(int argc, char **argv);
+int  cmd_group_expand(const char *group_name,
+                      char out[][LPM_NAME_MAX], int max_out);
 void cmd_info(int argc, char **argv);
 void cmd_owns(int argc, char **argv);
 void cmd_files(int argc, char **argv);
@@ -485,6 +517,9 @@ int  dryrun_remove(char **pkgnames, int npkgs, DryRun *dr);
 
 void cmd_list(int argc, char **argv);
 void cmd_orphans(int argc, char **argv);
+int db_count_orphans(void);               /* count orphans, no output — for `lpm audit` */
+int db_count_pending_updates(void);       /* count pending updates from cached repo.db, -1 if not synced */
+void cmd_audit(int argc, char **argv);    /* lpm audit [--log] */
 
 /* ── cache.c ─────────────────────────────────────────────────────────── */
 void cmd_rcc(int argc, char **argv);
@@ -494,31 +529,33 @@ void cmd_key(int argc, char **argv);
 
 /* ── lpkg.c — binary package format (.lpkg) ─────────────────────────── *
  *                                                                         *
- *  lpm -Pb <pkg>             build then pack → <pkg>-<ver>-<rel>-amd64.lpkg
- *  lpm -Pi <pkg.lpkg|name>   install from .lpkg (path or bare name scan)
- *  lpm -Pq [pkg.lpkg|name]   list cached .lpkg or show package info
- *  lpm -Pe <pkg.lpkg|name>   extract .lpkg into cwd for inspection
- *  lpm -Pv <pkg.lpkg|name>   verify .lpkg sha256 + meta integrity
- *  lpm -Pr <pkg.lpkg|name>   remove cached .lpkg file (not uninstall)
+ *  lpm package build   <pkg>             build then pack → <pkg>-<ver>-<rel>-amd64.lpkg
+ *  lpm package install <pkg.lpkg|name>   install from .lpkg (path or bare name scan)
+ *  lpm package query   [pkg.lpkg|name]   list cached .lpkg or show package info
+ *  lpm package extract <pkg.lpkg|name>   extract .lpkg into cwd for inspection
+ *  lpm package verify  <pkg.lpkg|name>   verify .lpkg sha256 + meta integrity
+ *  lpm package remove  <pkg.lpkg|name>   remove cached .lpkg file (not uninstall)
  * ─────────────────────────────────────────────────────────────────────── */
-void cmd_pack(int argc, char **argv);            /* -Pb */
-void cmd_pkginstall(int argc, char **argv);      /* -Pi */
-void cmd_pkglist(int argc, char **argv);         /* -Pq */
-void cmd_pkginstall_dir(int argc, char **argv);  /* -Pe */
-void cmd_pkgverify(int argc, char **argv);       /* -Pv */
-void cmd_pkgremove_file(int argc, char **argv);  /* -Pr */
+void cmd_pack(int argc, char **argv);            /* package build */
+int  lpkg_install_from_file(const char *lpkg_path); /* internal binary install */
+void cmd_pkginstall(int argc, char **argv);      /* package install */
+void cmd_pkglist(int argc, char **argv);         /* package query */
+void cmd_pkginstall_dir(int argc, char **argv);  /* package extract */
+void cmd_pkgverify(int argc, char **argv);       /* package verify */
+void cmd_pkgremove_file(int argc, char **argv);  /* package remove */
 
 /* ── recommend.c ─────────────────────────────────────────────────────── */
 int lpm_prompt_recommends(const char *pkgname, const LpmFlags *flags,
                           int (*install_fn)(const char *pkg));
 
-/* ── sync.c — lpm -Suy ──────────────────────────────────────────────── */
+/* ── sync.c — lpm upgrade ──────────────────────────────────────────────── */
 /* (cmd_suy declared above in build.c section) */
 
 /* ── build.c extras ──────────────────────────────────────────────────── */
 int lpm_parse_flags(int argc, char **argv, LpmFlags *f, char **pkgs,
                     int maxpkgs);
 void pkg_log_path(const char *pkgname, char *out, size_t outsz);
+void format_size(long bytes, char *out, size_t outsz);
 void check_remove_journal(void);
 
 /* ── config.c extras ─────────────────────────────────────────────────── */

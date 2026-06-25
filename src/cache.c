@@ -4,6 +4,29 @@
 #pragma GCC diagnostic ignored "-Wformat-truncation"
 #pragma GCC diagnostic ignored "-Wstringop-truncation"
 
+/* ── dir_size_bytes ──────────────────────────────────────────────────── *
+ * Recursive directory size in bytes. Self-contained (no `du` dependency,
+ * which formats inconsistently across glibc-host vs musl/busybox targets
+ * and prints a bare "0" with no unit for empty dirs).                   */
+static long dir_size_bytes(const char *path) {
+    long total = 0;
+    DIR *d = opendir(path);
+    if (!d) return 0;
+    struct dirent *ent;
+    while ((ent = readdir(d))) {
+        if (!strcmp(ent->d_name, ".") || !strcmp(ent->d_name, "..")) continue;
+        char sub[MAX_STR];
+        snprintf(sub, sizeof(sub), "%s/%s", path, ent->d_name);
+        struct stat st;
+        if (lstat(sub, &st) != 0) continue;
+        if (S_ISDIR(st.st_mode))
+            total += dir_size_bytes(sub);
+        else
+            total += st.st_size;
+    }
+    closedir(d);
+    return total;
+}
 
 void cmd_rcc(int argc, char **argv) {
     check_root(); init_dirs();
@@ -18,12 +41,10 @@ void cmd_rcc(int argc, char **argv) {
                 printf("  " C_YELLOW "%s" C_RESET ": no cache found\n", argv[i]);
                 continue;
             }
-            /* get size */
-            char size_cmd[MAX_CMD];
-            snprintf(size_cmd, sizeof(size_cmd), "du -sh '%s' 2>/dev/null | cut -f1", cachedir);
-            char sz[32] = "?";
-            FILE *p = popen(size_cmd, "r");
-            if (p) { (void)fgets(sz, sizeof(sz), p); sz[strcspn(sz, "\n")] = '\0'; pclose(p); }
+            long bytes = dir_size_bytes(cachedir);
+            char sz[32];
+            if (bytes > 0) format_size(bytes, sz, sizeof(sz));
+            else           snprintf(sz, sizeof(sz), "0 B");
 
             printf("  Cleaning " C_BOLD "%s" C_RESET " (%s)...", argv[i], sz);
             fflush(stdout);
@@ -52,16 +73,18 @@ void cmd_rcc(int argc, char **argv) {
     if (ntargets == 0) { printf("Nothing to clean.\n"); return; }
 
     printf("Cache of uninstalled packages (" C_BOLD "%d" C_RESET "):\n", ntargets);
+    int nhidden = 0;
     for (int i = 0; i < ntargets; i++) {
         char cachedir[MAX_STR];
         snprintf(cachedir, sizeof(cachedir), "%s/%s", LPM_BUILD_DIR, targets[i]);
-        char size_cmd[MAX_CMD];
-        snprintf(size_cmd, sizeof(size_cmd), "du -sh '%s' 2>/dev/null | cut -f1", cachedir);
-        char sz[32] = "?";
-        FILE *p = popen(size_cmd, "r");
-        if (p) { (void)fgets(sz, sizeof(sz), p); sz[strcspn(sz, "\n")] = '\0'; pclose(p); }
+        long bytes = dir_size_bytes(cachedir);
+        if (bytes == 0) { nhidden++; continue; }
+        char sz[32];
+        format_size(bytes, sz, sizeof(sz));
         printf("  " C_BOLD "%-24s" C_RESET "  %s\n", targets[i], sz);
     }
+    if (nhidden > 0)
+        printf("  " C_GRAY "+ %d empty cache dir(s) (0 B, hidden)" C_RESET "\n", nhidden);
     printf("\n");
     if (!confirm("Remove cache(s)? [y/N] ")) { printf("Aborted.\n"); goto cleanup; }
 

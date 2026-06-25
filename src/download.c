@@ -107,6 +107,8 @@ static void *dl_worker(void *arg) {
         job->result = -1;
         return NULL;
     }
+    DBG(2, "fetch [%s] %s -> %s", dl == DL_WGET ? "wget" : "curl",
+        job->url, job->dest);
 
     /* use a temp file */
     char part[LPM_PATH_MAX + 8];
@@ -143,8 +145,11 @@ static void *dl_worker(void *arg) {
     else    remove(part);
 
     /* verify checksum */
-    if (ok && job->cksum_type != CKSUM_SKIP && job->checksum[0])
+    if (ok && job->cksum_type != CKSUM_SKIP && job->checksum[0]) {
+        DBG(2, "verify checksum [%d] %s", job->cksum_type, job->dest);
         ok = (cksum_verify(job->dest, job->checksum, job->cksum_type) == 0);
+        DBG(2, "checksum %s: %s", ok ? "OK" : "MISMATCH", job->dest);
+    }
 
     remove(prog_file);
 
@@ -180,6 +185,7 @@ static long probe_size(const char *url) {
     long sz = -1;
     (void)fscanf(p, "%ld", &sz);
     pclose(p);
+    DBG(2, "probe_size %s = %ld bytes", url, sz);
     return sz > 0 ? sz : -1;
 }
 
@@ -197,13 +203,15 @@ int dl_file(const char *url, const char *dest,
 
 /* ── dl_fetch_all: main entry — parallel download with live bars ─────── */
 int dl_fetch_all(FetchJob *jobs, int njobs) {
+    TRACE("njobs=%d", njobs);
     if (njobs == 0) return 0;
+    DBG(1, "fetching %d source(s)", njobs);
 
     /* init slot state */
     g_nslots = njobs < MAX_SLOTS ? njobs : MAX_SLOTS;
     memset(g_slots, 0, sizeof(g_slots));
 
-    printf(C_PINK "::" C_RESET " Downloading sources...\n");
+    printf(":: Downloading sources...\n");
 
     for (int i = 0; i < g_nslots; i++) {
         /* label = basename of URL stripped of extension clutter */
@@ -289,8 +297,7 @@ int dl_fetch_all(FetchJob *jobs, int njobs) {
         if (jobs[i].result != 0) failed++;
 
     if (failed > 0) {
-        fprintf(stderr, C_RED "error:" C_RESET
-            " %d source(s) failed to download or verify\n", failed);
+        fprintf(stderr, "error: %d source(s) failed to download or verify\n", failed);
         return -1;
     }
     return 0;

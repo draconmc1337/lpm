@@ -137,46 +137,34 @@ static int parse_array(const char *val_start, FILE *fp,
     int n = 0;
 
     while (*p && n < maxn) {
-        /* skip leading whitespace / newlines */
-        while (*p && (isspace((unsigned char)*p))) p++;
+        /* skip whitespace, semicolons (lpm sep), commas */
+        while (*p && (isspace((unsigned char)*p) || *p == ';' || *p == ','))
+            p++;
         if (!*p) break;
 
-        /* ── strict: element must start with double-quote ── */
-        if (*p != '"') {
-            /* skip to next semicolon to recover, then continue */
-            char *semi = strchr(p, ';');
-            if (!semi) break;
-            p = semi + 1;
-            continue;
-        }
-        p++; /* consume opening " */
-
-        char elem[LPM_NAME_MAX] = "";
+        char elem[LPM_NAME_MAX];
         int ei = 0;
-        while (*p && *p != '"' && ei < (int)sizeof(elem)-1)
-            elem[ei++] = *p++;
-        if (*p == '"') p++; /* consume closing " */
-        elem[ei] = '\0';
+        memset(elem, 0, sizeof(elem));
+
+        /* quoted: double-quote or single-quote */
+        if (*p == 0x22 || *p == 0x27) {
+            char q = *p++;
+            while (*p && *p != q && ei < (int)sizeof(elem)-1)
+                elem[ei++] = *p++;
+            if (*p == q) p++;
+        } else {
+            /* bare word (bash style) */
+            while (*p && !isspace((unsigned char)*p) &&
+                   *p != ';' && *p != ',' && *p != ')' &&
+                   ei < (int)sizeof(elem)-1)
+                elem[ei++] = *p++;
+        }
+        elem[ei] = 0;
 
         if (elem[0]) {
             char expanded[LPM_NAME_MAX];
             expand_vars(st, elem, expanded, sizeof(expanded));
             strncpy(out[n++], expanded, LPM_NAME_MAX - 1);
-        }
-
-        /* ── strict: separator must be "; " (semicolon + space) ──
-         * bare ";" with no following space is an error — skip elem */
-        while (*p && isspace((unsigned char)*p) && *p != ';') p++;
-        if (*p == ';') {
-            p++; /* consume ; */
-            /* require at least one space after ; */
-            if (*p != ' ' && *p != '\t' && *p != '\n' && *p != '\0') {
-                /* no space after semicolon — format error, skip to next ; */
-                char *semi = strchr(p, ';');
-                if (!semi) break;
-                p = semi; /* will consume on next iteration */
-                continue;
-            }
         }
     }
     return n;
@@ -196,7 +184,6 @@ static int parse_pkgbuild_c(const char *pbfile, PkgMeta *m) {
     memset(&st, 0, sizeof(st));
 
     int line_no = 0;
-    int brace_depth = 0;   /* >0 = inside a function body, skip key=value */
     char line[4096];
     while (fgets(line, sizeof(line), fp)) {
         line_no++;
@@ -204,13 +191,6 @@ static int parse_pkgbuild_c(const char *pbfile, PkgMeta *m) {
 
         if (*p == '#' || *p == '\0' || *p == '\n') continue;
         rstrip(p);
-
-        /* track brace depth to skip function bodies */
-        for (char *c = p; *c; c++) {
-            if (*c == '{') brace_depth++;
-            else if (*c == '}') { if (brace_depth > 0) brace_depth--; }
-        }
-        if (brace_depth > 0) continue;  /* inside function body — skip */
 
         /* ── function declarations: build() / package() / check() ── */
         {
@@ -228,43 +208,22 @@ static int parse_pkgbuild_c(const char *pbfile, PkgMeta *m) {
             }
         }
 
-        /* ── strict key = value split ─────────────────────────────────
-         * Format:  key<SP>=<SP>value
-         * Both the space before '=' and the space after '=' are required.
-         * "key=value" and "key= value" are rejected with a warning.     */
+        /* ── flexible key=value split ─────────────────────────────────
+         * Accept both bash style (key=value, key="value", key=(a b c))
+         * and lpm style (key = "value", key = ("a"; "b")).
+         * Spaces around '=' are optional.                              */
         char *eq = strchr(p, '=');
         if (!eq) continue;
 
-        /* check space BEFORE '=' */
-        if (eq == p || *(eq - 1) != ' ') {
-            fprintf(stderr,
-                C_YELLOW "warning:" C_RESET
-                " %s:%d: missing space before '=' — line ignored\n"
-                "  hint: use  key = \"value\"  not  key=value\n",
-                pbfile, line_no);
-            continue;
-        }
-
-        /* check space AFTER '=' */
-        if (*(eq + 1) != ' ' && *(eq + 1) != '(') {
-            fprintf(stderr,
-                C_YELLOW "warning:" C_RESET
-                " %s:%d: missing space after '=' — line ignored\n"
-                "  hint: use  key = \"value\"  not  key=\"value\"\n",
-                pbfile, line_no);
-            continue;
-        }
-
+        /* key: everything before '=', strip trailing spaces */
         char key[64];
-        /* walk backwards from eq to skip ALL spaces/tabs before = */
-        char *ke = eq - 1;
-        while (ke > p && (*ke == ' ' || *ke == '\t')) ke--;
-        int klen = (int)(ke - p + 1);
+        int klen = (int)(eq - p);
+        while (klen > 0 && (p[klen-1] == ' ' || p[klen-1] == '	')) klen--;
         if (klen <= 0 || klen >= (int)sizeof(key)) continue;
         strncpy(key, p, (size_t)klen);
         key[klen] = '\0';
 
-        char *val = lstrip(eq + 1); /* skip '=' then spaces */
+        char *val = lstrip(eq + 1); /* skip '=' then any leading spaces */
 
         char expanded[2048];
         expand_vars(&st, val, expanded, sizeof(expanded));
@@ -297,14 +256,55 @@ static int parse_pkgbuild_c(const char *pbfile, PkgMeta *m) {
             strncpy(m->license, val, 127);
             strip_quotes(m->license); rstrip(m->license);
         } else if (!strcmp(key, "pkgtype")) {
-            /* binary: pre-built, no compilation; source: build from src */
             char tmp[32];
             strncpy(tmp, val, sizeof(tmp)-1); tmp[31] = '\0';
             strip_quotes(tmp); rstrip(tmp);
-            m->is_binary = (!strcmp(tmp, "binary") ||
-                            !strcmp(tmp, "bin"));
-        }
-        /* ── array fields: ("a"; "b"; "c") ── */
+            m->is_binary = (!strcmp(tmp, "binary") || !strcmp(tmp, "bin"));
+        } else if (!strcmp(key, "dlsize") || !strcmp(key, "dl_size")) {
+            m->dl_size = atol(val);
+        } else if (!strcmp(key, "instsize") || !strcmp(key, "inst_size")) {
+            m->inst_size = atol(val);
+        } else if (!strcmp(key, "source") && m->nsources < LPM_MAX_SOURCES) {
+            /* scalar source = "url" (legacy) */
+            char sv[LPM_PATH_MAX];
+            strncpy(sv, val, sizeof(sv)-1); sv[sizeof(sv)-1] = 0;
+            strip_quotes(sv); rstrip(sv);
+            if (sv[0]) {
+                strncpy(m->source[m->nsources], sv, LPM_PATH_MAX-1);
+                m->nsources++;
+            }
+        } else if (!strcmp(key, "sources")) {
+            /* array: sources = ("url1" "url2" ...) */
+            char arr[LPM_MAX_SOURCES][LPM_NAME_MAX];
+            int n = parse_array(val, fp, &st, arr, LPM_MAX_SOURCES);
+            for (int _i = 0; _i < n && m->nsources < LPM_MAX_SOURCES; _i++) {
+                if (arr[_i][0])
+                    strncpy(m->source[m->nsources++], arr[_i], LPM_PATH_MAX-1);
+            }
+        } else if (!strcmp(key, "source2") || !strcmp(key, "source3") ||
+                   !strcmp(key, "source4") || !strcmp(key, "source5")) {
+            /* sourceN = "url" (legacy multi-source) */
+            if (m->nsources < LPM_MAX_SOURCES) {
+                char sv[LPM_PATH_MAX];
+                strncpy(sv, val, sizeof(sv)-1); sv[sizeof(sv)-1] = 0;
+                strip_quotes(sv); rstrip(sv);
+                if (sv[0]) {
+                    strncpy(m->source[m->nsources], sv, LPM_PATH_MAX-1);
+                    m->nsources++;
+                }
+            }
+        } else if (!strcmp(key, "checksums")) {
+            /* array: checksums = ("sha512:abc..." "sha256:def..." "SKIP") */
+            char arr[LPM_MAX_SOURCES][LPM_NAME_MAX];
+            int n = parse_array(val, fp, &st, arr, LPM_MAX_SOURCES);
+            for (int _i = 0; _i < n && _i < LPM_MAX_SOURCES; _i++)
+                strncpy(m->checksums[_i], arr[_i], 199);
+        } else if (!strcmp(key, "groups")) {
+            /* array: groups = ("xlib" "x11") */
+            int n = parse_array(val, fp, &st,
+                                m->groups, LPM_MAX_DEPS);
+            m->ngroups = (uint8_t)n;
+        } /* ── array fields: ("a"; "b"; "c") ── */
         else if (!strcmp(key, "depends")) {
             m->ndepends = (uint8_t)parse_array(val, fp, &st,
                            m->depends, LPM_MAX_DEPS);
@@ -454,7 +454,7 @@ int pkgbuild_parse_fast(const char *pbfile, PkgMeta *m) {
 }
 
 /* ── pkgbuild_invalidate_cache ───────────────────────────────────────── *
- * Called after lpm -Sy (fetch new PKGBUILD) to force cache refresh.    */
+ * Called after lpm update (fetch new PKGBUILD) to force cache refresh.    */
 void pkgbuild_invalidate_cache(const char *pkgname) {
     char path[LPM_PATH_MAX];
     snprintf(path, sizeof(path), "%s/%s.meta",

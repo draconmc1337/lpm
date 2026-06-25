@@ -7,9 +7,9 @@
  * written to disk, no package is installed or removed.
  *
  * Usage:
- *   lpm -S firefox --dry-run
- *   lpm -S --dry-run firefox mesa
- *   lpm -R --dry-run gtk3
+ *   lpm install firefox --dry-run
+ *   lpm install --dry-run firefox mesa
+ *   lpm remove --dry-run gtk3
  */
 #define _XOPEN_SOURCE 700
 #include "lpm.h"
@@ -34,13 +34,25 @@ static void fmt_size(long bytes, char *buf, size_t sz) {
 /* ── dryrun_print ────────────────────────────────────────────────────── */
 void dryrun_print(const DryRun *dr) {
     if (dr->nops == 0) {
-        printf(C_GREEN "::" C_RESET " Nothing to do.\n");
+        printf(":: Nothing to do.\n");
         return;
     }
 
-    /* ── header ── */
-    printf("\n");
-    printf(C_BOLD "  Targets (%d):\n" C_RESET, dr->nops);
+    /* ── group ops by type for the header ── */
+    int ninstall = 0, nupgrade = 0, nremove = 0;
+    for (int i = 0; i < dr->nops; i++) {
+        if (dr->ops[i].type == DRY_INSTALL) ninstall++;
+        else if (dr->ops[i].type == DRY_UPGRADE) nupgrade++;
+        else nremove++;
+    }
+
+    /* ── header: pick label based on dominant op ── */
+    if (ninstall > 0 || nupgrade > 0) {
+        int ntotal = ninstall + nupgrade;
+        printf("\nPackages to install (%d):\n", ntotal);
+    } else {
+        printf("\nPackages to remove (%d):\n", nremove);
+    }
 
     /* ── per-target lines ── */
     int nconflicts = 0;
@@ -51,43 +63,28 @@ void dryrun_print(const DryRun *dr) {
     for (int i = 0; i < dr->nops; i++) {
         const DryOp *op = &dr->ops[i];
 
-        /* type badge */
-        const char *badge;
-        const char *badge_col;
+        /* type label */
+        const char *type_tag;
         switch (op->type) {
-        case DRY_UPGRADE:
-            badge     = "upgrade";
-            badge_col = C_CYAN;
-            break;
-        case DRY_REMOVE:
-            badge     = "remove ";
-            badge_col = C_RED;
-            break;
-        default:
-            badge     = "install";
-            badge_col = C_GREEN;
-            break;
+        case DRY_UPGRADE: type_tag = "upgrade"; break;
+        case DRY_REMOVE:  type_tag = "remove";  break;
+        default:          type_tag = "binary";  break;
         }
 
         /* version string */
-        char ver_str[LPM_VER_MAX * 2 + 8];
+        char ver_str[LPM_VER_MAX * 2 + 8] = "";
         if (op->type == DRY_UPGRADE && op->from_ver[0])
             snprintf(ver_str, sizeof(ver_str),
-                     "%s" C_RESET " -> " C_GREEN "%s" C_RESET,
-                     op->from_ver, op->to_ver);
-        else
-            snprintf(ver_str, sizeof(ver_str),
-                     C_GREEN "%s" C_RESET, op->to_ver);
+                     "-%s -> %s", op->from_ver, op->to_ver);
+        else if (op->to_ver[0])
+            snprintf(ver_str, sizeof(ver_str), "-%s", op->to_ver);
 
-        /* size hint */
-        char sz[24] = "";
-        if (op->dl_bytes > 0)
+        printf(" %s%s (%s)", op->name, ver_str, type_tag);
+        if (op->dl_bytes > 0) {
+            char sz[24];
             fmt_size(op->dl_bytes, sz, sizeof(sz));
-
-        printf("  %s[%s]%s  %-28s  %s",
-               badge_col, badge, C_RESET, op->name, ver_str);
-        if (sz[0])
-            printf("  " C_GRAY "(%s)" C_RESET, sz);
+            printf("  %s", sz);
+        }
         printf("\n");
 
         /* collect conflicts and hooks */
@@ -100,49 +97,43 @@ void dryrun_print(const DryRun *dr) {
 
     /* ── sizes ── */
     printf("\n");
-    char dl_str[24] = "0 B";
-    if (dr->total_dl > 0)
+    if (dr->total_dl > 0) {
+        char dl_str[24];
         fmt_size(dr->total_dl, dl_str, sizeof(dl_str));
-
-    char inst_str[32];
-    if (dr->total_inst_delta >= 0) {
-        char tmp[24];
-        fmt_size(dr->total_inst_delta, tmp, sizeof(tmp));
-        snprintf(inst_str, sizeof(inst_str), C_GREEN "+%s" C_RESET, tmp);
-    } else {
-        char tmp[24];
-        fmt_size(-dr->total_inst_delta, tmp, sizeof(tmp));
-        snprintf(inst_str, sizeof(inst_str), C_YELLOW "-%s" C_RESET, tmp);
+        printf("Download:   %s\n", dl_str);
     }
-
-    printf("  " C_BOLD "Download size:" C_RESET "   %s\n", dl_str);
-    printf("  " C_BOLD "Disk usage:   " C_RESET "   %s\n", inst_str);
+    if (dr->total_inst_delta != 0) {
+        char tmp[24];
+        if (dr->total_inst_delta >= 0) {
+            fmt_size(dr->total_inst_delta, tmp, sizeof(tmp));
+            printf("Installed:  %s\n", tmp);
+        } else {
+            fmt_size(-dr->total_inst_delta, tmp, sizeof(tmp));
+            printf("Freed:      %s\n", tmp);
+        }
+    }
 
     /* ── conflicts ── */
     if (nconflicts > 0) {
-        printf("\n");
-        printf(C_BOLD "  Conflicts:\n" C_RESET);
+        printf("\nConflicts:\n");
         for (int i = 0; i < nconflicts; i++)
-            printf("  " C_RED "✗" C_RESET "  %s\n", conflicts[i]);
+            printf(" ! %s\n", conflicts[i]);
     }
 
     /* ── hooks ── */
     if (nhooks > 0) {
-        printf("\n");
-        printf(C_BOLD "  Hooks:\n" C_RESET);
+        printf("\nHooks:\n");
         /* deduplicate */
         for (int i = 0; i < nhooks; i++) {
             int dup = 0;
             for (int j = 0; j < i; j++)
                 if (!strcmp(hooks[i], hooks[j])) { dup = 1; break; }
             if (!dup)
-                printf("  " C_CYAN "→" C_RESET "  %s\n", hooks[i]);
+                printf(" >> %s\n", hooks[i]);
         }
     }
 
-    printf("\n");
-    printf(C_GRAY "  (dry run — no changes were made)\n" C_RESET);
-    printf("\n");
+    printf("\n(dry run — no changes were made)\n\n");
 }
 
 /* ── dryrun_build ────────────────────────────────────────────────────── *

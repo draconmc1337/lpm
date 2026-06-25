@@ -38,12 +38,23 @@ typedef struct llpm_handle {
   llpm_key_t keys[64];
   int  nkeys;
   int  keyring_loaded;
+
+  /* ── db callbacks: set by lpm binary before using transactions ── *
+   * libllpm.so cannot link against db.c (lives in lpm binary).     *
+   * lpm registers these pointers via llpm_handle_set_db_ops().     */
+  int (*cb_is_installed)(const char *name);
+  int (*cb_files_remove)(const char *name);   /* returns nfiles */
+  void (*cb_remove)      (const char *name);
 } llpm_handle_t;
 
 llpm_handle_t *llpm_initialize(const char *root, const char *dbpath, llpm_errno_t *err);
 int llpm_release(llpm_handle_t *h);
 llpm_errno_t llpm_errno(const llpm_handle_t *h);
 void llpm_set_errno(llpm_handle_t *h, llpm_errno_t err);
+void llpm_handle_set_db_ops(llpm_handle_t *h,
+    int (*is_installed)(const char *),
+    int (*files_remove)(const char *),
+    void (*db_remove_fn)(const char *));
 
 #ifdef __cplusplus
 }

@@ -7,4 +7,4 @@
 #include "repo.h"
 #include "trans.h"
 
-#define LLPM_LIB_VERSION "0.2.0-alpha"
+#define LLPM_LIB_VERSION "1.2.0"

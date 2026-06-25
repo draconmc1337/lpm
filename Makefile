@@ -5,7 +5,7 @@ CFLAGS  = -Wall -Wextra -O2 -Iinclude
 # Bump SOVERSION when ABI breaks (new/removed symbols, struct layout change)
 # Bump VERSION for any other change
 SOVERSION   = 1
-VERSION     = 1.1.2
+VERSION     = 1.2.0
 
 # ── libllpm source files ──────────────────────────────────────────────
 LLPM_LIB_SRCS = \
@@ -30,10 +30,10 @@ LIBLLPM_SONAME = libllpm.so.$(SOVERSION)
 # libllpm is its "libalpm" — lpm depends on it at runtime)
 SRCS = src/main.c src/util.c src/db.c src/pkgbuild.c \
        src/build.c src/search.c src/cache.c src/dep.c \
-       src/config.c src/download.c src/checksum.c \
+       src/config.c src/download.c src/checksum.c src/sha256.c \
        src/transaction.c src/merge.c src/safety.c src/key.c src/profile.c \
        src/pkgbuild_parser.c src/recommend.c src/sync.c src/lpkg.c \
-       src/buildmeta.c src/dryrun.c
+       src/buildmeta.c src/dryrun.c src/verify.c src/audit.c
 
 TARGET = lpm
 
@@ -82,9 +82,10 @@ install: all
 	# binary
 	install -Dm755 $(TARGET)       /usr/bin/lpm
 	# shared library: install versioned, create soname + dev symlinks
+	# versioned file (the real .so)
 	install -Dm755 $(LIBLLPM_SO)   /usr/lib/$(LIBLLPM_SO)
-	ln -sf $(LIBLLPM_SO)           /usr/lib/libllpm.so.$(SOVERSION)
-	ln -sf libllpm.so.$(SOVERSION) /usr/lib/libllpm.so
+	# libllpm.so → libllpm.so.1  (dev symlink for -lllpm)
+	ln -sf $(LIBLLPM_SO) /usr/lib/libllpm.so
 	# static library (for developers building against libllpm)
 	install -Dm644 $(LIBLLPM_A)    /usr/lib/$(LIBLLPM_A)
 	# run ldconfig so the dynamic linker finds the new .so
@@ -99,6 +100,9 @@ install: all
 	install -Dm644 include/llpm/trans.h   /usr/include/llpm/trans.h
 	install -Dm644 include/llpm/dep.h     /usr/include/llpm/dep.h
 	install -Dm644 include/llpm/keyring.h /usr/include/llpm/keyring.h
+	# shell completions
+	install -Dm644 completions/_lpm          /usr/share/zsh/site-functions/_lpm
+	install -Dm644 completions/lpm.bash      /usr/share/bash-completion/completions/lpm
 
 # ── uninstall ─────────────────────────────────────────────────────────
 uninstall:
@@ -116,6 +120,8 @@ uninstall:
 	      /usr/include/llpm/dep.h     \
 	      /usr/include/llpm/keyring.h
 	rmdir --ignore-fail-on-non-empty /usr/include/llpm 2>/dev/null || true
+	rm -f /usr/share/zsh/site-functions/_lpm
+	rm -f /usr/share/bash-completion/completions/lpm
 
 # ── clean ─────────────────────────────────────────────────────────────
 clean:

@@ -2,12 +2,12 @@
  * lpkg.c — Binary package format (.lpkg) for lpm
  *
  * Commands:
- *   lpm -Pb <pkg>          Build package, then pack into <pkg>-<ver>-<rel>-<arch>.lpkg
- *   lpm -Pi <pkg|path>     Install from a .lpkg file (by path or by name scan)
- *   lpm -Pq [pkg|path]     Query / show info about a .lpkg or installed pkg
- *   lpm -Pe <pkg.lpkg>     Extract .lpkg contents into current directory (inspect)
- *   lpm -Pv <pkg.lpkg>     Verify .lpkg signature + checksum without installing
- *   lpm -Pr <pkg.lpkg>     Remove a built .lpkg file from the cache
+ *   lpm package build   <pkg>          Build package, then pack into <pkg>-<ver>-<rel>-<arch>.lpkg
+ *   lpm package install <pkg|path>     Install from a .lpkg file (by path or by name scan)
+ *   lpm package query   [pkg|path]     Query / show info about a .lpkg or installed pkg
+ *   lpm package extract <pkg.lpkg>     Extract .lpkg contents into current directory (inspect)
+ *   lpm package verify  <pkg.lpkg>     Verify .lpkg checksum without installing
+ *   lpm package remove  <pkg.lpkg>     Remove a built .lpkg file from the cache
  *
  * Format: .lpkg is a zstd-compressed tar archive with the layout:
  *   .lpkg/
@@ -161,7 +161,7 @@ static int lpkg_write_meta(const char *outdir, const LpkgMeta *m) {
     return 0;
 }
 
-/* ── cmd_pack (-Pb) ───────────────────────────────────────────────────── *
+/* ── cmd_pack (-P pack) ───────────────────────────────────────────────────── *
  * 1. Ensure the package has been built (pkgdir must exist).               *
  * 2. Pack it into <name>-<ver>-<rel>-<arch>.lpkg under LPKG_CACHE_DIR.   */
 void cmd_pack(int argc, char **argv) {
@@ -171,7 +171,7 @@ void cmd_pack(int argc, char **argv) {
     if (argc == 0) {
         fprintf(stderr,
             C_RED "error:" C_RESET " no package specified\n"
-            "usage: lpm -Pb <package>\n");
+            "usage: lpm package build <package>\n");
         exit(1);
     }
 
@@ -184,8 +184,8 @@ void cmd_pack(int argc, char **argv) {
         fprintf(stderr,
             C_RED "error:" C_RESET
             " packing requires bsdtar, or tar + zstd\n"
-            "  Install: lpm -S libarchive  (for bsdtar)\n"
-            "       or: lpm -S zstd\n");
+            "  Install: lpm install libarchive  (for bsdtar)\n"
+            "       or: lpm install zstd\n");
         exit(1);
     }
 
@@ -201,63 +201,76 @@ void cmd_pack(int argc, char **argv) {
 
         struct stat pbs;
         if (stat(pbfile, &pbs) != 0) {
-            fprintf(stderr,
-                C_RED "error:" C_RESET " target not found: %s\n"
-                "  (no pkgbuild_%s in %s)\n",
-                pkgname, pkgname, LPM_PKGBUILD_DIR);
-            continue;
+            /* Not cached locally — try fetching from repo (same as lpm install) */
+            printf(":: Fetching PKGBUILD for %s...\n", pkgname);
+            if (fetch_pkgbuild(pkgname) != 0 || stat(pbfile, &pbs) != 0) {
+                fprintf(stderr,
+                    "error: target not found: %s\n"
+                    "  (no pkgbuild_%s in %s, and not found in any repo)\n"
+                    "  hint: run 'lpm update' to sync repositories first\n",
+                    pkgname, pkgname, LPM_PKGBUILD_DIR);
+                continue;
+            }
         }
 
-        Pkg pkg;
-        if (pkgbuild_parse(pbfile, &pkg) != 0) {
-            fprintf(stderr, C_RED "error:" C_RESET
-                    " failed to parse PKGBUILD for %s\n", pkgname);
+        /* Use pkgbuild_parse_fast (C key=value parser).
+         * pkgbuild_parse uses bash source which fails silently on
+         * Lotus PKGBUILD format ('key = "value"' is not valid bash). */
+        PkgMeta pm;
+        memset(&pm, 0, sizeof(pm));
+        if (pkgbuild_parse_fast(pbfile, &pm) != 0 || !pm.pkgname[0]) {
+            fprintf(stderr, "error: failed to parse PKGBUILD for %s\n"
+                    "  (is pkgname set?)\n", pkgname);
             continue;
         }
 
         /* pkgdir is where package() staged the files */
         char pkgdir[MAX_STR];
         snprintf(pkgdir, sizeof(pkgdir), "%s/%s/pkg/%s",
-                 LPM_BUILD_DIR, pkg.pkgname, pkg.pkgname);
+                 LPM_BUILD_DIR, pm.pkgname, pm.pkgname);
 
         struct stat pkgdir_st;
         if (stat(pkgdir, &pkgdir_st) != 0) {
-            fprintf(stderr,
-                C_RED "error:" C_RESET
-                " pkgdir not found for %s — build it first with 'lpm -S %s'\n"
-                "  expected: %s\n",
-                pkgname, pkgname, pkgdir);
-            continue;
+            /* pkgdir doesn't exist — run the build now */
+            printf(":: Building %s-%s-%s...\n",
+                   pm.pkgname, pm.pkgver, pm.pkgrel);
+            if (lpm_build_package(pm.pkgname) != 0) {
+                fprintf(stderr, "error: build failed for %s\n", pkgname);
+                continue;
+            }
+            if (stat(pkgdir, &pkgdir_st) != 0) {
+                fprintf(stderr,
+                    "error: build finished but pkgdir still missing:\n"
+                    "  expected: %s\n", pkgdir);
+                continue;
+            }
         }
 
         /* ── build output path ───────────────────────────────────────── */
         char outpath[LPM_PATH_MAX];
-        lpkg_cache_path(pkg.pkgname, pkg.pkgver, pkg.pkgrel,
+        lpkg_cache_path(pm.pkgname, pm.pkgver, pm.pkgrel,
                         outpath, sizeof(outpath));
 
-        printf(C_CYAN "::" C_RESET " Packing " C_BOLD "%s-%s-%s" C_RESET
-               " → " C_CYAN "%s" C_RESET "\n",
-               pkg.pkgname, pkg.pkgver, pkg.pkgrel, outpath);
+        printf(":: Packing %s-%s-%s → %s\n",
+               pm.pkgname, pm.pkgver, pm.pkgrel, outpath);
 
         /* ── create staging area ─────────────────────────────────────── */
         char stagedir[MAX_STR];
         snprintf(stagedir, sizeof(stagedir),
-                 "/tmp/lpm_lpkg_stage_%s_%d", pkg.pkgname, (int)getpid());
+                 "/tmp/lpm_lpkg_stage_%s_%d", pm.pkgname, (int)getpid());
         util_rmrf(stagedir);
         util_mkdirp(stagedir, 0755);
 
         /* ── write meta ──────────────────────────────────────────────── */
         LpkgMeta m;
         memset(&m, 0, sizeof(m));
-        snprintf(m.name,    sizeof(m.name),    "%s", pkg.pkgname);
-        snprintf(m.ver,     sizeof(m.ver),     "%s", pkg.pkgver);
-        snprintf(m.rel,     sizeof(m.rel),     "%s", pkg.pkgrel);
+        snprintf(m.name,    sizeof(m.name),    "%s", pm.pkgname);
+        snprintf(m.ver,     sizeof(m.ver),     "%s", pm.pkgver);
+        snprintf(m.rel,     sizeof(m.rel),     "%s", pm.pkgrel);
         snprintf(m.arch,    sizeof(m.arch),    "%s", LPKG_ARCH);
-        snprintf(m.license, sizeof(m.license), "unknown");
-
-        /* try to get description from PkgMeta cache */
-        PkgMeta pm; memset(&pm, 0, sizeof(pm));
-        if (pkgbuild_parse_fast(pbfile, &pm) == 0 && pm.description[0])
+        snprintf(m.license, sizeof(m.license), "%s",
+                 pm.license[0] ? pm.license : "unknown");
+        if (pm.description[0])
             snprintf(m.desc, sizeof(m.desc), "%s", pm.description);
 
         time_t now = time(NULL);
@@ -286,10 +299,9 @@ void cmd_pack(int argc, char **argv) {
                 pkgdir, datatmp);
         }
 
-        printf(C_GRAY "  packing files..." C_RESET "\n");
+        printf("  packing files...\n");
         if (system(pack_cmd) != 0) {
-            fprintf(stderr, C_RED "error:" C_RESET
-                    " failed to pack data for %s\n", pkgname);
+            fprintf(stderr, "error: failed to pack data for %s\n", pkgname);
             util_rmrf(stagedir);
             continue;
         }
@@ -339,21 +351,62 @@ void cmd_pack(int argc, char **argv) {
         struct stat out_st;
         if (stat(outpath, &out_st) == 0) {
             double sz_mb = (double)out_st.st_size / (1024.0 * 1024.0);
-            printf(C_GREEN "==> Packed:" C_RESET " %s " C_GRAY "(%.2f MiB)" C_RESET "\n",
-                   outpath, sz_mb);
+            printf("==> Packed: %s (%.2f MiB)\n", outpath, sz_mb);
         } else {
-            printf(C_GREEN "==> Packed:" C_RESET " %s\n", outpath);
+            printf("==> Packed: %s\n", outpath);
         }
 
-        lpm_log("Packed %s-%s-%s → %s", pkg.pkgname, pkg.pkgver, pkg.pkgrel,
+        lpm_log("Packed %s-%s-%s → %s", pm.pkgname, pm.pkgver, pm.pkgrel,
                 outpath);
+
+        /* ── sign .lpkg ──────────────────────────────────────────────── *
+         * Produce <outpath>.sig (detached, ASCII-armored).
+         * Abort this package if signing fails — an unsigned .lpkg must
+         * not silently enter the repo; the client enforces sig_required. */
+        {
+            char sigpath[LPM_PATH_MAX];
+            snprintf(sigpath, sizeof(sigpath), "%s.sig", outpath);
+            char sign_cmd[MAX_CMD];
+            snprintf(sign_cmd, sizeof(sign_cmd),
+                "gpg --homedir /etc/lpm/gnupg --batch --yes "
+                "--detach-sign --armor -o '%s' '%s' 2>/tmp/lpm-sign.err",
+                sigpath, outpath);
+            int sign_rc = system(sign_cmd);
+            if (sign_rc != 0 || access(sigpath, F_OK) != 0) {
+                fprintf(stderr,
+                    C_RED "error: " C_RESET
+                    "signing failed for %s\n"
+                    "  ensure /etc/lpm/gnupg has a valid signing key "
+                    "(run: lpm key init)\n",
+                    outpath);
+                /* remove unsigned artifact so it can't accidentally be used */
+                unlink(outpath);
+                unlink(sigpath);
+                lpm_log("Sign FAILED: %s-%s-%s",
+                        pm.pkgname, pm.pkgver, pm.pkgrel);
+                continue;
+            }
+            printf("  -> signed  %s.sig\n", outpath);
+            lpm_log("Signed %s.sig", outpath);
+        }
     }
 }
 
-/* ── cmd_pkginstall (-Pi) ─────────────────────────────────────────────── *
+/* ── cmd_pkginstall (-P install) ─────────────────────────────────────────────── *
  * Install a .lpkg file.  Argument can be:                                 *
  *   - absolute/relative path: /path/to/foo-1.0-1-amd64.lpkg              *
  *   - bare package name:      foo   (scans LPKG_CACHE_DIR automatically)  */
+
+/* ── lpkg_install_from_file — internal API ───────────────────────────── *
+ * Called by cmd_sync when pkgtype=binary: install a .lpkg file directly *
+ * without going through cmd_pkginstall's argc/argv wrapper.             *
+ * Returns 0 on success, -1 on error.                                    */
+int lpkg_install_from_file(const char *lpkg_path) {
+    char *argv[2] = { (char *)lpkg_path, NULL };
+    cmd_pkginstall(1, argv);
+    return 0;  /* cmd_pkginstall exits on hard errors */
+}
+
 void cmd_pkginstall(int argc, char **argv) {
     check_root();
     init_dirs();
@@ -361,20 +414,13 @@ void cmd_pkginstall(int argc, char **argv) {
     if (argc == 0) {
         fprintf(stderr,
             C_RED "error:" C_RESET " no package specified\n"
-            "usage: lpm -Pi <package.lpkg | package-name>\n");
+            "usage: lpm package install <package.lpkg | package-name>\n");
         exit(1);
     }
 
     int have_bsdtar = have_tool("bsdtar");
     int have_zstd   = have_tool("zstd");
     int have_tar    = have_tool("tar");
-
-    if (!have_bsdtar && (!have_tar || !have_zstd)) {
-        fprintf(stderr,
-            C_RED "error:" C_RESET
-            " extraction requires bsdtar, or tar + zstd\n");
-        exit(1);
-    }
 
     for (int i = 0; i < argc; i++) {
         char lpkg_path[LPM_PATH_MAX];
@@ -401,6 +447,30 @@ void cmd_pkginstall(int argc, char **argv) {
             fprintf(stderr,
                 C_RED "error:" C_RESET " file not found: %s\n", lpkg_path);
             continue;
+        }
+
+        /* ── verify signature before extracting anything ───────────── *
+         * Only enforced when VERIFY_SIG=1 in lpm.conf.                  *
+         * sig_required=1: .sig must exist and be from a trusted key.    */
+        if (g_cfg.verify_sig) {
+            if (lpm_sig_verify(lpkg_path, NULL, /*sig_required=*/1) != 0) {
+                /* lpm_sig_verify already printed the specific error reason */
+                fprintf(stderr,
+                    "error: refusing to install unsigned/untrusted package: %s\n",
+                    lpkg_path);
+                continue;
+            }
+            DBG(2, "signature OK: %s", lpkg_path);
+        } else {
+            DBG(2, "sig check skipped (VERIFY_SIG=0): %s", lpkg_path);
+        }
+
+        /* ── extraction tool check (after sig, intentionally) ────────── */
+        if (!have_bsdtar && (!have_tar || !have_zstd)) {
+            fprintf(stderr,
+                C_RED "error:" C_RESET
+                " extraction requires bsdtar, or tar + zstd\n");
+            exit(1);
         }
 
         /* ── extract to temp dir ─────────────────────────────────────── */
@@ -522,7 +592,7 @@ void cmd_pkginstall(int argc, char **argv) {
     }
 }
 
-/* ── cmd_pkglist (-Pq) ────────────────────────────────────────────────── *
+/* ── cmd_pkglist (-P query) ────────────────────────────────────────────────── *
  * With no arguments: list all .lpkg files in cache.                       *
  * With argument: show detailed info about that .lpkg (by path or name).   */
 void cmd_pkglist(int argc, char **argv) {
@@ -652,14 +722,14 @@ void cmd_pkglist(int argc, char **argv) {
     }
 }
 
-/* ── cmd_pkginstall_dir (-Pe) ─────────────────────────────────────────── *
+/* ── cmd_pkginstall_dir (-P extract) ─────────────────────────────────────────── *
  * Extract a .lpkg into the current directory for inspection.              *
  * Does NOT install anything to the system.                                */
 void cmd_pkginstall_dir(int argc, char **argv) {
     if (argc == 0) {
         fprintf(stderr,
             C_RED "error:" C_RESET " no package specified\n"
-            "usage: lpm -Pe <package.lpkg | package-name>\n");
+            "usage: lpm package extract <package.lpkg | package-name>\n");
         exit(1);
     }
 
@@ -728,14 +798,14 @@ void cmd_pkginstall_dir(int argc, char **argv) {
     }
 }
 
-/* ── cmd_pkgverify (-Pv) ──────────────────────────────────────────────── *
+/* ── cmd_pkgverify (-P verify) ──────────────────────────────────────────────── *
  * Verify the integrity of a .lpkg file (sha256 check, meta sanity).      *
  * Does not install anything.                                              */
 void cmd_pkgverify(int argc, char **argv) {
     if (argc == 0) {
         fprintf(stderr,
             C_RED "error:" C_RESET " no package specified\n"
-            "usage: lpm -Pv <package.lpkg | package-name>\n");
+            "usage: lpm package verify <package.lpkg | package-name>\n");
         exit(1);
     }
 
@@ -839,14 +909,14 @@ void cmd_pkgverify(int argc, char **argv) {
     }
 }
 
-/* ── cmd_pkgremove_file (-Pr) ─────────────────────────────────────────── *
+/* ── cmd_pkgremove_file (-P remove) ─────────────────────────────────────────── *
  * Remove a .lpkg file from the cache (not from the system).              *
- * This is NOT 'lpm -R'; it only deletes the binary package file.         */
+ * This is NOT 'lpm remove'; it only deletes the binary package file.         */
 void cmd_pkgremove_file(int argc, char **argv) {
     if (argc == 0) {
         fprintf(stderr,
             C_RED "error:" C_RESET " no package specified\n"
-            "usage: lpm -Pr <package.lpkg | package-name>\n");
+            "usage: lpm package remove <package.lpkg | package-name>\n");
         exit(1);
     }
 

@@ -27,8 +27,12 @@ static void usage(void) {
         "\n"
         "system:\n"
         "  cache    [clean]     manage build cache\n"
-        "  verify   [pkg(s)]    verify installed packages\n"
+        "  verify   [pkg(s)]    verify installed package integrity\n"
+        "                       (files, checksums, perms, ownership)\n"
+        "  verify   --deps      check dependency consistency\n"
+        "  test     <pkg(s)>    run a package's check() test suite\n"
         "  audit                show audit log\n"
+        "  bootstrap -C <target> [pkg(s)]   install base system into target dir\n"
         "  repo     <sub>       repo management\n"
         "\n"
         "query:\n"
@@ -38,8 +42,8 @@ static void usage(void) {
         "  orphans              show orphaned packages\n"
         "\n"
         "tools:\n"
-        "  -P  <sub>            package tools (build/pack)\n"
-        "  -K  <sub>            key management\n"
+        "  key      <sub>       key management\n"
+        "  package  <sub>       package tools (build/pack)\n"
         "\n"
         "options:\n"
         "  --no-confirm         skip confirmation prompt\n"
@@ -54,7 +58,7 @@ static void usage(void) {
 
 static void usage_P(void) {
     printf(
-        "usage: lpm -P <subcommand> [args]\n"
+        "usage: lpm package <subcommand> [args]\n"
         "\n"
         "package tool subcommands:\n"
         "  build   <pkg>             build package from PKGBUILD\n"
@@ -69,7 +73,7 @@ static void usage_P(void) {
 
 static void usage_K(void) {
     printf(
-        "usage: lpm -K <subcommand> [args]\n"
+        "usage: lpm key <subcommand> [args]\n"
         "\n"
         "key subcommands:\n"
         "  init                initialize lpm keyring\n"
@@ -115,8 +119,8 @@ static int dispatch_P(int argc, char **argv) {
         usage_P();
     else {
         fprintf(stderr,
-            C_RED "error:" C_RESET " unknown -P subcommand '%s'\n"
-            "run 'lpm -P help' for available subcommands\n", sub);
+            C_RED "error:" C_RESET " unknown package subcommand '%s'\n"
+            "run 'lpm package help' for available subcommands\n", sub);
         return 1;
     }
     return 0;
@@ -147,6 +151,7 @@ static int is_readonly_cmd(const char *cmd) {
            !strcmp(cmd, "orphans") ||
            !strcmp(cmd, "deps")    ||
            !strcmp(cmd, "audit")   ||
+           !strcmp(cmd, "verify")  ||
            !strcmp(cmd, "-V")      ||
            !strcmp(cmd, "--version")||
            !strcmp(cmd, "-h")      ||
@@ -167,6 +172,7 @@ int main(int argc, char **argv) {
             return 1;
         }
         g_verbose = lvl;
+        g_debug   = lvl;
     }
 
     /* ── strip --debug=N from argv ─── */
@@ -180,6 +186,7 @@ int main(int argc, char **argv) {
                 return 1;
             }
             g_verbose = lvl;
+            g_debug   = lvl;
             for (int j = i; j < argc - 1; j++) argv[j] = argv[j + 1];
             argc--; i--;
         }
@@ -211,25 +218,33 @@ int main(int argc, char **argv) {
     /* ── per-command help: lpm <cmd> --help ─── */
     if (sub_argc >= 1 &&
         (!strcmp(sub_argv[0], "--help") || !strcmp(sub_argv[0], "-h"))) {
-        if (!strcmp(cmd, "-P") || !strcmp(cmd, "pack") || !strcmp(cmd, "package"))
+        if (!strcmp(cmd, "package"))
             usage_P();
-        else if (!strcmp(cmd, "-K") || !strcmp(cmd, "key"))
+        else if (!strcmp(cmd, "key"))
             usage_K();
         else
             usage();
         return 0;
     }
 
-    /* ── guard against multiple operation flags (old pacman-style) ─── */
-    {
-        static const char *OP_LIST[] = {
-            "-S", "--sync", "-R", "--remove", "-Q", "--query",
-            "-D", "--database", "-U", "--upgrade", "-F", "--files",
+    /* ── guard against accidental repeated commands ─────────────────── *
+     * e.g. `lpm install install firefox` — if the first sub-argument is
+     * itself a known command name, the user likely fat-fingered it.
+     * Skipped for key/package: their subcommands (list/install/verify/
+     * remove/...) live in a separate namespace validated by dispatch_K/
+     * dispatch_P, and happen to share names with top-level commands —
+     * applying this guard there made e.g. `lpm key list` and
+     * `lpm package verify <pkg>` permanently unusable. */
+    if (strcmp(cmd, "key") && strcmp(cmd, "package")) {
+        static const char *CMD_LIST[] = {
+            "install", "remove", "upgrade", "update", "search", "info",
+            "deps", "list", "owns", "files", "orphans", "cache", "verify",
+            "test", "audit", "bootstrap", "repo", "key", "package",
             NULL
         };
         for (int i = 0; i < sub_argc; i++) {
-            for (int k = 0; OP_LIST[k]; k++) {
-                if (!strcmp(sub_argv[i], OP_LIST[k])) {
+            for (int k = 0; CMD_LIST[k]; k++) {
+                if (!strcmp(sub_argv[i], CMD_LIST[k])) {
                     fprintf(stderr,
                         C_RED "error:" C_RESET
                         " only one command may be used at a time\n");
@@ -258,6 +273,9 @@ int main(int argc, char **argv) {
                 "lpm is already running — only one instance at a time\n"
                 "  if stale, remove: " C_CYAN LPM_LOCK_FILE C_RESET "\n");
             return 1;
+        } else if (lock_rc == -3) {
+            /* lpm_lock_acquire() already printed the real reason */
+            return 1;
         }
     }
 
@@ -266,24 +284,24 @@ int main(int argc, char **argv) {
      * ══════════════════════════════════════════════════════════════════ */
 
     /* ── install ─────────────────────────────────────────────────────── */
-    if (!strcmp(cmd, "install") || !strcmp(cmd, "-S"))
+    if (!strcmp(cmd, "install"))
         cmd_sync(sub_argc, sub_argv);
 
     /* ── remove ──────────────────────────────────────────────────────── */
-    else if (!strcmp(cmd, "remove") || !strcmp(cmd, "-R"))
+    else if (!strcmp(cmd, "remove"))
         cmd_remove(sub_argc, sub_argv);
 
     /* ── upgrade: no args = full system upgrade; args = specific pkgs ── */
-    else if (!strcmp(cmd, "upgrade") || !strcmp(cmd, "-U")) {
+    else if (!strcmp(cmd, "upgrade")) {
         if (sub_argc > 0)
-            cmd_update(sub_argc, sub_argv);  /* upgrade specific packages */
+            cmd_update(sub_argc, sub_argv);  /* check specific packages */
         else
             cmd_suy(0, NULL);                /* full system upgrade */
     }
 
-    /* ── update: sync repo databases ─────────────────────────────────── */
+    /* ── update: sync repo databases only ──────────────────────────── */
     else if (!strcmp(cmd, "update"))
-        cmd_suy(0, NULL);                    /* fetch DBs + check for updates */
+        cmd_db_update(sub_argc, sub_argv);
 
     /* ── search ──────────────────────────────────────────────────────── */
     else if (!strcmp(cmd, "search"))
@@ -294,11 +312,11 @@ int main(int argc, char **argv) {
         cmd_info(sub_argc, sub_argv);
 
     /* ── deps ────────────────────────────────────────────────────────── */
-    else if (!strcmp(cmd, "deps") || !strcmp(cmd, "-D"))
+    else if (!strcmp(cmd, "deps"))
         cmd_deptree(sub_argc, sub_argv);
 
     /* ── list ────────────────────────────────────────────────────────── */
-    else if (!strcmp(cmd, "list") || !strcmp(cmd, "-Q"))
+    else if (!strcmp(cmd, "list"))
         cmd_list(sub_argc, sub_argv);
 
     /* ── owns ────────────────────────────────────────────────────────── */
@@ -326,22 +344,22 @@ int main(int argc, char **argv) {
 
     /* ── verify ──────────────────────────────────────────────────────── */
     else if (!strcmp(cmd, "verify"))
+        cmd_verify(sub_argc, sub_argv);
+
+    /* ── test ────────────────────────────────────────────────────────── *
+     * Runs a PKGBUILD's check() function — a package test suite, not a
+     * system integrity check. Use `lpm verify` for the latter. */
+    else if (!strcmp(cmd, "test"))
         cmd_check(sub_argc, sub_argv);
 
-    /* ── audit ───────────────────────────────────────────────────────── */
-    else if (!strcmp(cmd, "audit")) {
-        /* dump the audit log — simple, no extra function needed */
-        const char *log = LPM_AUDIT_LOG;
-        FILE *f = fopen(log, "r");
-        if (!f) {
-            printf("No audit log found at %s\n", log);
-        } else {
-            char line[1024];
-            while (fgets(line, sizeof(line), f))
-                fputs(line, stdout);
-            fclose(f);
-        }
+    /* ── bootstrap ──────────────────────────────────────────────────── */
+    else if (!strcmp(cmd, "bootstrap") || !strcmp(cmd, "pacstrap")) {
+        cmd_bootstrap(sub_argc, sub_argv);
     }
+
+    /* ── audit ───────────────────────────────────────────────────────── */
+    else if (!strcmp(cmd, "audit"))
+        cmd_audit(sub_argc, sub_argv);
 
     /* ── repo ────────────────────────────────────────────────────────── */
     else if (!strcmp(cmd, "repo")) {
@@ -362,15 +380,15 @@ int main(int argc, char **argv) {
         }
     }
 
-    /* ── -P: package tools ───────────────────────────────────────────── */
-    else if (!strcmp(cmd, "-P")) {
+    /* ── package: package tools (build/pack/install/.../verify/remove) ── */
+    else if (!strcmp(cmd, "package")) {
         int rc = dispatch_P(sub_argc, sub_argv);
         if (needs_lock && !g_interrupted) lpm_lock_release();
         return rc;
     }
 
-    /* ── -K: key management ──────────────────────────────────────────── */
-    else if (!strcmp(cmd, "-K")) {
+    /* ── key: key management ────────────────────────────────────────── */
+    else if (!strcmp(cmd, "key")) {
         int rc = dispatch_K(sub_argc, sub_argv);
         if (needs_lock && !g_interrupted) lpm_lock_release();
         return rc;
@@ -390,5 +408,6 @@ int main(int argc, char **argv) {
     }
 
     if (needs_lock && !g_interrupted) lpm_lock_release();
+    if (g_cancel) return 130;
     return 0;
 }
