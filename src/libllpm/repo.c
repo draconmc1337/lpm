@@ -79,13 +79,13 @@ int llpm_repo_find_pkg(llpm_handle_t *h, const char *name, llpm_pkg_t *out) {
     if (letter < 'a' || letter > 'z')  letter = '0';
 
     snprintf(pbfile, sizeof(pbfile),
-             "/usr/src/lpm/%c/pkgbuild_%s", letter, name);
+             LLPM_PKGBUILD_DIR "/%c/pkgbuild_%s", letter, name);
     f = fopen(pbfile, "r");
 
     if (!f) {
         /* flat layout fallback */
         snprintf(pbfile, sizeof(pbfile),
-                 "/usr/src/lpm/pkgbuild_%s", name);
+                 LLPM_PKGBUILD_DIR "/pkgbuild_%s", name);
         f = fopen(pbfile, "r");
     }
 

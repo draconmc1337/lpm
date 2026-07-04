@@ -66,7 +66,7 @@ static int run(const char *cmd) {
 
 /* Forward declaration — defined at the bottom of this file so it can
  * reference queue[] which is built by the callers above it. */
-static int fetch_all_sources(char queue[][MAX_STR], int nqueue);
+int fetch_all_sources(char queue[][MAX_STR], int nqueue);
 
 /* ── pkg_log_path ────────────────────────────────────────────────────── *
  * Returns the per-package build log path into out[outsz].               */
@@ -596,7 +596,7 @@ static char *pkgbuild_to_bash(const char *pbfile) {
     return result;
 }
 
-static void do_build_install(Pkg *pkg, const char *pbfile_orig, LpmConfig *cfg,
+void do_build_install(Pkg *pkg, const char *pbfile_orig, LpmConfig *cfg,
                              int qi, int nqueue, const LpmFlags *flags) {
   /* Convert new-format PKGBUILD to bash-compatible temp file if needed */
   char *_converted_pb = pkgbuild_to_bash(pbfile_orig);
@@ -818,6 +818,16 @@ static void do_build_install(Pkg *pkg, const char *pbfile_orig, LpmConfig *cfg,
    * package is currently installed, auto-remove it first so the
    * new name takes over cleanly.  Print a clear notice so the user
    * knows why a package they never asked to remove disappeared.    */
+  /* ── pack_only mode: skip install, leave pkgdir intact for packing ── */
+  if (flags->pack_only) {
+    long elapsed = (long)(time(NULL) - t_start);
+    printf(":: Built %s-%s-%s in %lds — pkgdir: %s\n",
+           pkg->pkgname, pkg->pkgver, pkg->pkgrel, elapsed, pkgdir);
+    lpm_log("Built (pack_only) %s %s-%s", pkg->pkgname, pkg->pkgver, pkg->pkgrel);
+    PBCLEAN();
+    return;
+  }
+
   for (int ri = 0; ri < pkg->nreplaces; ri++) {
     const char *old_name = pkg->replaces[ri];
     if (!db_is_installed(old_name)) continue;
@@ -938,14 +948,19 @@ static void url_dir(char *out, size_t n, const char *repo, const char *name) {
 /* ── pkg_locate_from_db ───────────────────────────────────────────────── *
  * Fast O(N) local repo.db lookup — returns 0..2 (base/extra/lotus) or -1. *
  * Called before any network I/O; eliminates 6 HEAD requests per package   *
- * for the common case (lpm update has been run at least once).            */
-static int pkg_locate_from_db(const char *name) {
+ * for the common case (lpm update has been run at least once).            *
+ * If ver_out is non-NULL, also copies the repo's "VER-REL" string for     *
+ * this package (empty string if the line has no '=' field) — this is     *
+ * what lets ROUND 0 tell a genuinely up-to-date on-disk PKGBUILD apart    *
+ * from a stale one without any extra network I/O.                        */
+static int pkg_locate_from_db(const char *name, char *ver_out, size_t ver_sz) {
     static const char *DB_PATHS[] = {
         "/var/lib/lpm/db/base.db",
         "/var/lib/lpm/db/extra.db",
         "/var/lib/lpm/db/lotus.db",
         NULL
     };
+    if (ver_out && ver_sz) ver_out[0] = '\0';
     size_t nlen = strlen(name);
     for (int i = 0; DB_PATHS[i]; i++) {
         FILE *f = fopen(DB_PATHS[i], "r");
@@ -956,12 +971,74 @@ static int pkg_locate_from_db(const char *name) {
             /* fast prefix match: "pkgname=..." */
             if (strncmp(line, name, nlen) == 0 &&
                 (line[nlen] == '=' || line[nlen] == ' '))
-            { found = 1; break; }
+            {
+                found = 1;
+                if (line[nlen] == '=' && ver_out && ver_sz) {
+                    const char *v = line + nlen + 1;
+                    size_t vl = strcspn(v, " \t\r\n");
+                    if (vl >= ver_sz) vl = ver_sz - 1;
+                    memcpy(ver_out, v, vl);
+                    ver_out[vl] = '\0';
+                }
+                break;
+            }
         }
         fclose(f);
         if (found) return i;  /* 0=base, 1=extra, 2=lotus */
     }
     return -1;
+}
+
+/* ── pkgbuild_on_disk_is_stale ───────────────────────────────────────── *
+ * Decides whether an on-disk PKGBUILD needs refreshing, using only data  *
+ * already on disk (the file itself + the last-synced repo.db) — no      *
+ * network I/O, so this preserves ROUND 0's whole reason for existing.    *
+ *                                                                         *
+ * repo_ver may be "" when the package isn't in the local db yet (not     *
+ * synced). In that case we can't prove staleness, so we trust the cache  *
+ * — same behaviour as before this fix, for that specific case.          *
+ *                                                                         *
+ * Uses pkgbuild_parse_fast(), which is already cache-aware and spawns    *
+ * no bash process, so this check is cheap even for hundreds of deps.     */
+static int pkgbuild_on_disk_is_stale(const char *pbfile, const char *repo_ver) {
+    if (!repo_ver || !repo_ver[0]) return 0; /* unverifiable: trust cache */
+
+    PkgMeta m;
+    if (pkgbuild_parse_fast(pbfile, &m) != 0) {
+        /* Can't even parse it — that alone is a strong staleness/corruption
+         * signal, so ask the caller to refetch rather than build from a
+         * file we can't read. */
+        return 1;
+    }
+    if (!m.pkgver[0]) return 1; /* no version info: don't trust it */
+
+    char local_ver[LPM_VER_MAX + 16];
+    if (m.pkgrel[0])
+        snprintf(local_ver, sizeof(local_ver), "%s-%s", m.pkgver, m.pkgrel);
+    else
+        snprintf(local_ver, sizeof(local_ver), "%s", m.pkgver);
+
+    return strcmp(local_ver, repo_ver) != 0;
+}
+
+/* ── pkgbuild_needs_fetch ────────────────────────────────────────────── *
+ * Single source of truth for "does this package's on-disk PKGBUILD need
+ * a (re)fetch". Every caller that builds a "which pkgbuilds are missing"
+ * list before calling fetch_pkgbuilds_parallel() used to hand-roll its
+ * own bare stat()-only check (present == trust forever) — which is how
+ * the ROUND-0 staleness bug ended up duplicated across build_queue() and
+ * cmd_install()'s dependency pass, not just the top-level fetch. Routing
+ * all of them through one function means there is now exactly one place
+ * that defines "stale", instead of three that can drift out of sync.    */
+static int pkgbuild_needs_fetch(const char *name) {
+    char pbf[LPM_PATH_MAX + LPM_NAME_MAX + 16];
+    snprintf(pbf, sizeof(pbf), "%s/pkgbuild_%s", LPM_PKGBUILD_DIR, name);
+    struct stat st;
+    if (stat(pbf, &st) != 0 || st.st_size <= 16) return 1; /* absent/empty */
+
+    char repo_ver[LPM_VER_MAX + 16];
+    pkg_locate_from_db(name, repo_ver, sizeof(repo_ver));
+    return pkgbuild_on_disk_is_stale(pbf, repo_ver);
 }
 
 /* result struct: which repo + which layout matched */
@@ -1037,24 +1114,43 @@ static int fetch_pkgbuilds_parallel(const char **names, int n,
     if (n == 0) { *nmissing = 0; return 0; }
     util_mkdirp(LPM_PKGBUILD_DIR, 0755);
 
-    /* ── ROUND 0: local db lookup — skip already-on-disk + known repo ── */
-    /* db_repo[i] = 0/1/2 from db, -1 = unknown (need HEAD fallback)     */
+    /* ── ROUND 0: local db lookup — skip already-on-disk + known repo ── *
+     * "On disk" alone used to be treated as "fresh forever": a           *
+     * PKGBUILD fetched once would never be re-validated, so a legacy or  *
+     * since-corrected file could silently persist across every future    *
+     * build. We now cross-check the on-disk file's own pkgver-pkgrel     *
+     * against the last-synced repo.db (pure local comparison, still      *
+     * zero network I/O) and only trust the cache when they agree.        *
+     * had_stale[i] remembers which packages we're refreshing despite     *
+     * already having *something* on disk, so a failed refresh later      *
+     * doesn't delete a still-usable fallback copy (see ROUND 1/2).       */
     int  db_repo[256];
     int  need_net[256]; /* indices into names[] that need a fetch         */
     int  nnet = 0;
+    int  had_stale[256] = {0};
 
     for (int i = 0; i < n && i < 256; i++) {
         char pbf[LPM_PATH_MAX + LPM_NAME_MAX + 16];
         snprintf(pbf, sizeof(pbf), "%s/pkgbuild_%s",
                  LPM_PKGBUILD_DIR, names[i]);
         struct stat st;
-        if (stat(pbf, &st) == 0 && st.st_size > 16) {
-            db_repo[i] = -2; /* already on disk, skip */
-            DBG(3, "pkgbuild_%s: cached on disk", names[i]);
+        int on_disk = (stat(pbf, &st) == 0 && st.st_size > 16);
+
+        char repo_ver[LPM_VER_MAX + 16];
+        db_repo[i] = pkg_locate_from_db(names[i], repo_ver, sizeof(repo_ver));
+
+        if (on_disk && !pkgbuild_on_disk_is_stale(pbf, repo_ver)) {
+            DBG(3, "pkgbuild_%s: cached on disk, up to date", names[i]);
             continue;
         }
-        db_repo[i] = pkg_locate_from_db(names[i]);
-        DBG(3, "pkgbuild_%s: db_repo=%d", names[i], db_repo[i]);
+
+        if (on_disk) {
+            had_stale[i] = 1;
+            DBG(1, "pkgbuild_%s: on-disk copy is stale (repo has %s) —"
+                   " refreshing", names[i], repo_ver[0] ? repo_ver : "?");
+        } else {
+            DBG(3, "pkgbuild_%s: db_repo=%d", names[i], db_repo[i]);
+        }
         need_net[nnet++] = i;
     }
 
@@ -1111,7 +1207,15 @@ static int fetch_pkgbuilds_parallel(const char **names, int n,
             pkgbuild_invalidate_cache(names[i]);
             continue;
         }
-        remove(dir_jobs[k].dest); /* clean partial */
+        /* dl_worker() only ever replaces dest via rename-on-success, so a
+         * failed attempt never touches a pre-existing file — but this
+         * cleanup line used to remove(dest) unconditionally regardless.
+         * That was harmless while ROUND 0 could only send *absent* files
+         * here; now that a stale-but-present file can reach this point,
+         * deleting it on a transient failure would trade a silent
+         * staleness bug for a hard failure / data loss on a flaky
+         * network. Only clean up when there was nothing worth keeping. */
+        if (!had_stale[i]) remove(dir_jobs[k].dest); /* clean partial */
         /* retry with flat layout */
         FetchJob *j = &flat_jobs[nflat];
         memset(j, 0, sizeof(*j));
@@ -1139,6 +1243,17 @@ static int fetch_pkgbuilds_parallel(const char **names, int n,
         if (ok) {
             DBG(2, "pkgbuild_%s: flat-layout OK", names[i]);
             pkgbuild_invalidate_cache(names[i]);
+        } else if (had_stale[i]) {
+            /* Both refresh attempts failed, but we still have the old
+             * on-disk copy (never deleted — see ROUND 1). Prefer building
+             * with known-stale data over hard-failing the whole install;
+             * this matches the pre-fix behaviour for this package (which
+             * never even attempted a refresh) rather than introducing a
+             * new failure mode purely because we can now detect staleness. */
+            fprintf(stderr, C_YELLOW "warning: " C_RESET
+                    "could not refresh pkgbuild_%s (network?) — using the "
+                    "existing on-disk copy, which may be out of date\n",
+                    names[i]);
         } else {
             remove(flat_jobs[k].dest);
             still_missing[nstill++] = i;
@@ -1216,8 +1331,8 @@ void cmd_fetch(int argc, char **argv) {
  * After pkgbuild_parse() (bash), fill any empty fields from the faster  *
  * C parser result or from the queue name.  Prevents empty pkgname       *
  * causing workspace path to collapse to LPM_BUILD_DIR/.                 */
-static void pkg_patch_from_fast(Pkg *pkg, const char *qname,
-                                 const char *pbfile) {
+void pkg_patch_from_fast(Pkg *pkg, const char *qname,
+                          const char *pbfile) {
     PkgMeta fm;
     memset(&fm, 0, sizeof(fm));
     pkgbuild_parse_fast(pbfile, &fm);
@@ -1250,10 +1365,7 @@ static int build_queue(char **pkgs, int npkgs, char queue[][MAX_STR], int maxq) 
   const char *need[256];
   int nneed = 0;
   for (int j = 0; j < nqueue && nneed < 256; j++) {
-    char pbf[LPM_PATH_MAX + LPM_NAME_MAX + 16];
-    snprintf(pbf, sizeof(pbf), "%s/pkgbuild_%s", LPM_PKGBUILD_DIR, queue[j]);
-    struct stat pbst;
-    if (stat(pbf, &pbst) != 0)
+    if (pkgbuild_needs_fetch(queue[j]))
       need[nneed++] = queue[j];
   }
   if (nneed > 0) {
@@ -1483,11 +1595,7 @@ void cmd_sync(int argc, char **argv) {
     int nneed = 0;
     for (int qi = 0; qi < nqueue && nneed < 256; qi++) {
       if (db_is_installed(queue[qi])) continue;
-      char pbf[LPM_PATH_MAX + LPM_NAME_MAX + 16];
-      snprintf(pbf, sizeof(pbf), "%s/pkgbuild_%s",
-               LPM_PKGBUILD_DIR, queue[qi]);
-      struct stat st;
-      if (stat(pbf, &st) != 0)
+      if (pkgbuild_needs_fetch(queue[qi]))
         need[nneed++] = queue[qi];
     }
     if (nneed > 0) {
@@ -1669,11 +1777,7 @@ void cmd_sync(int argc, char **argv) {
     }
     /* also fetch their PKGBUILDs */
     for (int r = 0; r < nrq; r++) {
-      char pbf[LPM_PATH_MAX + LPM_NAME_MAX + 16];
-      snprintf(pbf, sizeof(pbf), "%s/pkgbuild_%s",
-               LPM_PKGBUILD_DIR, rec_queue[r]);
-      struct stat st;
-      if (stat(pbf, &st) != 0)
+      if (pkgbuild_needs_fetch(rec_queue[r]))
         fetch_pkgbuild(rec_queue[r]);
     }
   }
@@ -2223,7 +2327,7 @@ int pkg_run_hook(const char *h, Package *pkg){ (void)h; (void)pkg; return 0; }
  * After all downloads complete, checksums are verified for every package.
  * Returns 0 on success, -1 on download failure or checksum mismatch.
  * ══════════════════════════════════════════════════════════════════════ */
-static int fetch_all_sources(char queue[][MAX_STR], int nqueue) {
+int fetch_all_sources(char queue[][MAX_STR], int nqueue) {
   /* pass 1: count sources to size the FetchJob array */
   int total_srcs = 0;
   for (int qi = 0; qi < nqueue; qi++) {
@@ -2778,76 +2882,4 @@ void cmd_bootstrap(int argc, char **argv)
     printf("  dinit-setup  # if available\n\n");
     printf("  # install bootloader (BIOS/EFI)\n");
     printf("  limine bios-install /dev/sdX\n\n");
-}
-
-/* ── lpm_build_package — public wrapper around do_build_install ──────── *
- * Fetch PKGBUILD if needed, parse it, run build()+package(), stage files.*
- *                                                                         *
- * Uses pkgbuild_parse_fast (C key=value parser) instead of               *
- * pkgbuild_parse (bash source) because Lotus PKGBUILDs use               *
- * 'key = "value"' format which is not valid bash — bash source fails     *
- * silently leaving pkg.pkgname empty.                                     *
- *                                                                         *
- * Returns 0 on success, -1 on any failure.                               */
-int lpm_build_package(const char *pkgname) {
-    char pbfile[LPM_PATH_MAX + LPM_NAME_MAX + 16];
-    snprintf(pbfile, sizeof(pbfile), "%s/pkgbuild_%s",
-             LPM_PKGBUILD_DIR, pkgname);
-
-    /* fetch if not cached */
-    struct stat st;
-    if (stat(pbfile, &st) != 0) {
-        if (fetch_pkgbuild(pkgname) != 0 || stat(pbfile, &st) != 0) {
-            fprintf(stderr,
-                "error: PKGBUILD for %s not found in any repo\n"
-                "  hint: run 'lpm update' first\n", pkgname);
-            return -1;
-        }
-    }
-
-    /* pkgbuild_parse_fast reads 'key = "value"' format (Lotus PKGBUILD format).
-     * pkgbuild_parse uses bash source and requires valid bash syntax — don't use it. */
-    PkgMeta pm;
-    memset(&pm, 0, sizeof(pm));
-    if (pkgbuild_parse_fast(pbfile, &pm) != 0 || !pm.pkgname[0]) {
-        fprintf(stderr, "error: failed to parse PKGBUILD for %s\n"
-                "  (check that pkgname is set in the PKGBUILD)\n", pkgname);
-        return -1;
-    }
-
-    /* Build a minimal Pkg struct for do_build_install from PkgMeta */
-    Pkg pkg;
-    memset(&pkg, 0, sizeof(pkg));
-    strncpy(pkg.pkgname, pm.pkgname, LPM_NAME_MAX - 1);
-    strncpy(pkg.pkgver,  pm.pkgver,  LPM_VER_MAX  - 1);
-    strncpy(pkg.pkgrel,  pm.pkgrel,  sizeof(pkg.pkgrel) - 1);
-    strncpy(pkg.pbfile,  pbfile,     LPM_PATH_MAX  - 1);
-
-    /* copy depends */
-    pkg.ndepends = pm.ndepends;
-    for (int d = 0; d < pm.ndepends; d++)
-        strncpy(pkg.depends[d], pm.depends[d], LPM_NAME_MAX - 1);
-
-    /* copy sources + checksums */
-    pkg.nsources = pm.nsources;
-    for (int s = 0; s < pm.nsources; s++) {
-        strncpy(pkg.source[s],    pm.source[s],    LPM_PATH_MAX - 1);
-        strncpy(pkg.checksums[s], pm.checksums[s], sizeof(pkg.checksums[s]) - 1);
-    }
-
-    /* fetch sources using the package name (do_build_install expects
-     * them already present in the workspace) */
-    char queue[1][MAX_STR];
-    strncpy(queue[0], pkg.pkgname, MAX_STR - 1);
-    if (fetch_all_sources(queue, 1) != 0) {
-        fprintf(stderr, "error: source download failed for %s\n", pkgname);
-        return -1;
-    }
-
-    LpmFlags flags;
-    memset(&flags, 0, sizeof(flags));
-    flags.no_confirm = 1;
-
-    do_build_install(&pkg, pbfile, &g_cfg, 1, 1, &flags);
-    return 0;
 }

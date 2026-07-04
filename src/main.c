@@ -61,8 +61,10 @@ static void usage_P(void) {
         "usage: lpm package <subcommand> [args]\n"
         "\n"
         "package tool subcommands:\n"
-        "  build   <pkg>             build package from PKGBUILD\n"
-        "  pack    <pkg>             build and pack → .lpkg binary\n"
+        "  build   <pkg>             fetch + build from PKGBUILD + pack → .lpkg\n"
+        "                             (no install required first)\n"
+        "  pack    <pkg>             pack an already-built pkgdir → .lpkg\n"
+        "                             (build first via 'lpm install' or 'package build')\n"
         "  install <pkg.lpkg|name>   install from .lpkg file\n"
         "  query   [pkg.lpkg|name]   query cached .lpkg or show info\n"
         "  extract <pkg.lpkg|name>   extract .lpkg into current dir\n"
@@ -102,9 +104,9 @@ static int dispatch_P(int argc, char **argv) {
     char **sub_argv = argv + 1;
 
     if (!strcmp(sub, "build") || !strcmp(sub, "b"))
-        cmd_pack(sub_argc, sub_argv);          /* build + pack */
+        cmd_build(sub_argc, sub_argv);         /* fetch + build + pack, no install needed */
     else if (!strcmp(sub, "pack"))
-        cmd_pack(sub_argc, sub_argv);
+        cmd_pack(sub_argc, sub_argv);          /* pack an already-built pkgdir only */
     else if (!strcmp(sub, "install") || !strcmp(sub, "i"))
         cmd_pkginstall(sub_argc, sub_argv);
     else if (!strcmp(sub, "query") || !strcmp(sub, "q"))
@@ -235,7 +237,7 @@ int main(int argc, char **argv) {
      * dispatch_P, and happen to share names with top-level commands —
      * applying this guard there made e.g. `lpm key list` and
      * `lpm package verify <pkg>` permanently unusable. */
-    if (strcmp(cmd, "key") && strcmp(cmd, "package")) {
+    if (strcmp(cmd, "key") && strcmp(cmd, "package") && strcmp(cmd, "repo")) {
         static const char *CMD_LIST[] = {
             "install", "remove", "upgrade", "update", "search", "info",
             "deps", "list", "owns", "files", "orphans", "cache", "verify",

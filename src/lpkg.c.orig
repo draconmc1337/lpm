@@ -217,7 +217,7 @@ static int lpkg_pack_one(Pkg *pkg, const char *pbfile, const char *pkgdir,
     char pack_cmd[MAX_CMD];
     if (have_bsdtar) {
         snprintf(pack_cmd, sizeof(pack_cmd),
-            "bsdtar -C '%s' -czf '%s' --zstd .",
+            "bsdtar -C '%s' --zstd -cf '%s' .",
             pkgdir, datatmp);
     } else {
         snprintf(pack_cmd, sizeof(pack_cmd),
@@ -329,6 +329,13 @@ void cmd_pack(int argc, char **argv) {
     check_root();
     init_dirs();
 
+    if (argc == 0) {
+        fprintf(stderr,
+            C_RED "error:" C_RESET " no package specified\n"
+            "usage: lpm package pack <package>\n");
+        exit(1);
+    }
+
     /* Check for required packing tools */
     int have_bsdtar = have_tool("bsdtar");
     int have_zstd   = have_tool("zstd");
@@ -437,6 +444,18 @@ void cmd_build(int argc, char **argv) {
     check_root();
     init_dirs();
 
+    LpmFlags flags;
+    char *pkgs[256];
+    int npkgs = lpm_parse_flags(argc, argv, &flags, pkgs, 256);
+    flags.pack_only = 1;   /* stage + stop — never touch the installed DB */
+
+    if (npkgs == 0) {
+        fprintf(stderr,
+            C_RED "error:" C_RESET " no package specified\n"
+            "usage: lpm package build <package>\n");
+        exit(1);
+    }
+
     /* Fail fast on missing packing tools, same as cmd_pack — no point
      * spending minutes building something we can't pack afterward. */
     int have_bsdtar = have_tool("bsdtar");
@@ -453,18 +472,6 @@ void cmd_build(int argc, char **argv) {
     }
 
     util_mkdirp(LPKG_CACHE_DIR, 0755);
-
-    LpmFlags flags;
-    char *pkgs[256];
-    int npkgs = lpm_parse_flags(argc, argv, &flags, pkgs, 256);
-    flags.pack_only = 1;   /* stage + stop — never touch the installed DB */
-
-    if (npkgs == 0) {
-        fprintf(stderr,
-            C_RED "error:" C_RESET " no package specified\n"
-            "usage: lpm package build <package>\n");
-        exit(1);
-    }
 
     LpmConfig cfg;
     lpm_config_load(LPM_CONF_FILE, &cfg);

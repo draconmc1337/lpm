@@ -432,7 +432,7 @@ int llpm_dep_reverse(llpm_handle_t *h, const char *pkgname,
 
         /* check if this package depends on pkgname */
         char pbfile[LLPM_PATH_MAX];
-        snprintf(pbfile, sizeof(pbfile), "/usr/src/lpm/pkgbuild_%s", name);
+        snprintf(pbfile, sizeof(pbfile), LLPM_PKGBUILD_DIR "/pkgbuild_%s", name);
         FILE *pb = fopen(pbfile, "r");
         if (!pb) continue;
         char pbline[2048];

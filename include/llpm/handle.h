@@ -9,6 +9,11 @@ extern "C" {
 #endif
 
 #define LLPM_REPO_MAX 32
+/* Single source of truth for the local PKGBUILD cache directory.
+ * lpm.h's LPM_PKGBUILD_DIR is defined to this value.
+ * Change only here; all consumers follow automatically. */
+#define LLPM_PKGBUILD_DIR "/usr/src/lpm"
+
 #define LLPM_NAME_MAX 64
 #define LLPM_URL_MAX 512
 #define LLPM_PATH_MAX 512

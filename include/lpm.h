@@ -25,7 +25,7 @@
 #include <unistd.h>
 
 /* ── version ─────────────────────────────────────────────────────────── */
-#define LPM_VERSION "1.4.1"
+#define LPM_VERSION "1.4.2"
 #define LPM_LOCK_FILE "/var/lock/lpm.lock"
 #define LPM_DB_DIR "/var/lib/lpm/db"
 #define LPM_DB "/var/lib/lpm/db/installed"
@@ -33,7 +33,8 @@
 #define LPM_CACHE_DIR "/var/cache/lpm"
 #define LPM_BUILD_DIR "/var/cache/lpm"
 #define LPM_CONF_FILE "/etc/lpm/lpm.conf"
-#define LPM_PKGBUILD_DIR "/usr/src/lpm"
+#include "llpm/handle.h"
+#define LPM_PKGBUILD_DIR LLPM_PKGBUILD_DIR
 #define LPM_BUILD_META_DIR "/var/lib/lpm/buildmeta"
 
 
@@ -218,6 +219,7 @@ typedef struct {
   int dry_run;        /* --dry-run             */
   int force;          /* --force               */
   int debug;          /* --debug=N  (1/2/3)    */
+  int pack_only;
 } LpmFlags;
 
 /* ── Build metadata (reproducible build info) ────────────────────── */
@@ -448,12 +450,22 @@ int pkg_build(Package *pkg, const LpmConfig *cfg);
 int pkg_run_check(Package *pkg);
 int pkg_run_package(Package *pkg);
 int pkg_run_hook(const char *hook, Package *pkg);
+/* build.c — fetch a single PKGBUILD from the remote repo into LPM_PKGBUILD_DIR */
+int fetch_pkgbuild(const char *name);
+
+int fetch_pkgbuild(const char *name);
+int fetch_all_sources(char queue[][MAX_STR], int nqueue);
+void do_build_install(Pkg *pkg, const char *pbfile_orig, LpmConfig *cfg, int qi, int nqueue, const LpmFlags *flags);
+/* After pkgbuild_parse() (bash parser), fill any empty pkgname/pkgver/pkgrel
+ * (and sources, as a fallback) from the fast C parser, then from qname as a
+ * last resort. Was file-local to build.c; now shared so lpkg.c can use the
+ * same fix. See build.c for full rationale. */
+void pkg_patch_from_fast(Pkg *pkg, const char *qname, const char *pbfile);
+
 void cmd_sync(int argc, char **argv);
 void cmd_bootstrap(int argc, char **argv);
 void cmd_local(int argc, char **argv);
 void cmd_fetch(int argc, char **argv);
-int  fetch_pkgbuild(const char *name);      /* fetch one PKGBUILD from repo */
-int  lpm_build_package(const char *name);   /* fetch + build + stage package */
 void cmd_check(int argc, char **argv);    /* lpm test <pkg> — runs PKGBUILD check() */
 void cmd_verify(int argc, char **argv);   /* lpm verify [pkg...] — system integrity check */
 void cmd_remove(int argc, char **argv);
@@ -536,7 +548,8 @@ void cmd_key(int argc, char **argv);
  *  lpm package verify  <pkg.lpkg|name>   verify .lpkg sha256 + meta integrity
  *  lpm package remove  <pkg.lpkg|name>   remove cached .lpkg file (not uninstall)
  * ─────────────────────────────────────────────────────────────────────── */
-void cmd_pack(int argc, char **argv);            /* package build */
+void cmd_pack(int argc, char **argv);            /* package pack (pkgdir must already exist) */
+void cmd_build(int argc, char **argv);           /* package build (fetch+build+pack, no install) */
 int  lpkg_install_from_file(const char *lpkg_path); /* internal binary install */
 void cmd_pkginstall(int argc, char **argv);      /* package install */
 void cmd_pkglist(int argc, char **argv);         /* package query */

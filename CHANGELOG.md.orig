@@ -1,41 +1,17 @@
 # Changelog
 
-## [1.4.2] — 2026-07-04
+## [Unreleased]
 
-### Fixed — stale PKGBUILD caching in the build pipeline
+### Fixed
 
-- **build.c: `fetch_pkgbuilds_parallel()` ROUND 0** treated any on-disk
-  `pkgbuild_<name>` as fresh forever (existence + size > 16 bytes, no
-  version/mtime check). A PKGBUILD fetched once — however old, however
-  wrong — was never re-validated, only ever refreshed by the separate
-  `lpm update`/`-Suy` diff path. Root cause confirmed by tracing
-  `pkg.source[]` end-to-end through the parser, `FetchJob`, and the
-  downloader: no code transformed a URL into a relative path — the
-  pipeline was correctly parsing a stale file that never got re-fetched.
-  Fixed by cross-checking the on-disk file's own pkgver-pkgrel (via the
-  existing cache-aware `pkgbuild_parse_fast()`, no bash spawn) against
-  the last-synced repo.db — a pure local comparison, no added network
-  I/O — via new `pkgbuild_on_disk_is_stale()` / `pkgbuild_needs_fetch()`.
-- **build.c: same "exists on disk = trust forever" check was duplicated
-  three more times** — `build_queue()` (transitive deps), `cmd_install()`
-  STEP 2 (dep pre-filter), and `cmd_bootstrap()`'s recursive-dep loop —
-  meaning the ROUND-0 fix alone would not have covered dependency
-  packages. All four sites now go through the single shared
-  `pkgbuild_needs_fetch()` helper instead of re-implementing the check.
-- **build.c: ROUND 1/2 failure cleanup** (`remove(dest)` on a failed
-  refresh attempt) assumed a file reaching that path could only ever be
-  a partial download, since ROUND 0 previously guaranteed pre-existing
-  files never got that far. Fixing ROUND 0 made that assumption false —
-  without a guard, a transient network failure while refreshing a stale
-  PKGBUILD would have deleted the last good copy instead of just failing
-  to update it. Now guarded: a stale-but-present file is only removed
-  once a fetch actually succeeds; if every refresh attempt fails, lpm
-  falls back to the existing copy with a warning instead of hard-failing
-  the whole install.
-- **Housekeeping:** `Makefile`'s `VERSION` (1.2.0, unused by any build
-  rule) had drifted out of sync with the actual runtime version reported
-  by `lpm --version` (`LPM_VERSION` in `include/lpm.h`, 1.4.1). Both now
-  read 1.4.2.
+- **lpkg.c** — `lpm package build`/`lpm package pack` failed on every
+  system with `bsdtar` installed: `error: failed to pack data for
+  <pkg>` (`bsdtar: Can't specify both -z and --zstd`). The
+  `data.tar.zst` packing step passed both `-z` (gzip) and `--zstd`
+  to `bsdtar`, two mutually exclusive compression-filter selectors.
+  Dropped `-z` — `--zstd` alone already selects the correct filter,
+  matching the `.tar.zst` output name. The `tar`+`zstd` fallback path
+  (used when `bsdtar` isn't installed) was unaffected.
 
 ## [1.4.0-alpha] — 2026-05-07
 
