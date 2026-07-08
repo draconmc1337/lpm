@@ -2,8 +2,8 @@
 
 #define MAX_QUEUE 256
 
-/* repo folders to search — same order as cmd_sync */
-#define REPO_BASE "https://raw.githubusercontent.com/draconmc1337/lotus-repository/main"
+/* repo folders to search — same order as cmd_sync.
+ * REPO_BASE itself now comes from lpm.h (single source of truth). */
 
 typedef struct {
     char name[MAX_STR];

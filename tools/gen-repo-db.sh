@@ -1,7 +1,7 @@
 #!/bin/sh
 # gen-repo-db.sh — generate repo.db for lpm
 #
-# Usage (run from lotus-repository/):
+# Usage (run from repo-lotus/):
 #   ./gen-repo-db.sh base
 #   ./gen-repo-db.sh extra
 #   ./gen-repo-db.sh lotus

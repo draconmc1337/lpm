@@ -7,9 +7,17 @@
 
 /* ── helpers ─────────────────────────────────────────────────────────────── */
 
-/* run bash snippet, collect stdout lines into out[] array, return count */
+/* run bash snippet, collect stdout lines into out[], return count.
+ * out is a flat pointer into a 2D array whose row width is rowsz — the
+ * caller passes e.g. (char *)pkg->depends, LPM_NAME_MAX or
+ * (char *)pkg->source, LPM_PATH_MAX. Reading through a fixed-size local
+ * line buffer (independent of rowsz) before copying into the row means
+ * this is safe for both directions: it can't overflow a narrow row
+ * (previously always read up to MAX_STR/4096 bytes regardless of the
+ * actual row width — harmless for source[][4096], but genuinely unsafe
+ * for e.g. depends[][128]), and it can't silently truncate a wide one. */
 static int bash_array(const char *pbfile, const char *varname,
-                      char out[][LPM_NAME_MAX], int maxn) {
+                      char *out, size_t rowsz, int maxn) {
   char cmd[1024];
   snprintf(cmd, sizeof(cmd),
            "bash -c 'source \"%s\" 2>/dev/null; "
@@ -18,11 +26,16 @@ static int bash_array(const char *pbfile, const char *varname,
   FILE *p = popen(cmd, "r");
   if (!p)
     return 0;
+  char line[LPM_PATH_MAX];
   int n = 0;
-  while (n < maxn && fgets(out[n], MAX_STR, p)) {
-    out[n][strcspn(out[n], "\n")] = '\0';
-    if (out[n][0])
+  while (n < maxn && fgets(line, sizeof(line), p)) {
+    line[strcspn(line, "\n")] = '\0';
+    if (line[0]) {
+      char *dst = out + (size_t)n * rowsz;
+      strncpy(dst, line, rowsz - 1);
+      dst[rowsz - 1] = '\0';
       n++;
+    }
   }
   pclose(p);
   return n;
@@ -64,48 +77,29 @@ int pkgbuild_parse(const char *pbfile, Pkg *pkg) {
   bash_scalar(pbfile, "pkgver", pkg->pkgver, MAX_STR);
   bash_scalar(pbfile, "pkgrel", pkg->pkgrel, MAX_STR);
 
-  pkg->ndepends = bash_array(pbfile, "depends", pkg->depends, MAX_DEPS);
-  pkg->nrecommends =
-      bash_array(pbfile, "recommends", pkg->recommends, MAX_DEPS);
-  pkg->nmakedepends =
-      bash_array(pbfile, "makedepends", pkg->makedepends, MAX_DEPS);
-  pkg->nreplaces =
-      bash_array(pbfile, "replaces", pkg->replaces, MAX_DEPS);
+  pkg->ndepends = bash_array(pbfile, "depends",
+                             (char *)pkg->depends, LPM_NAME_MAX, MAX_DEPS);
+  pkg->nrecommends = bash_array(pbfile, "recommends",
+                                (char *)pkg->recommends, LPM_NAME_MAX, MAX_DEPS);
+  pkg->nmakedepends = bash_array(pbfile, "makedepends",
+                                 (char *)pkg->makedepends, LPM_NAME_MAX, MAX_DEPS);
+  pkg->nreplaces = bash_array(pbfile, "replaces",
+                              (char *)pkg->replaces, LPM_NAME_MAX, MAX_DEPS);
+  pkg->nconflicts = bash_array(pbfile, "conflicts",
+                               (char *)pkg->conflicts, LPM_NAME_MAX, MAX_DEPS);
+  pkg->nbackup = bash_array(pbfile, "backup",
+                            (char *)pkg->backup, LPM_PATH_MAX, LPM_MAX_BACKUP);
 
-  /* source is a scalar string, not array */
-  bash_scalar(pbfile, "source", pkg->source[0], MAX_STR);
-  pkg->nsources = pkg->source[0][0] ? 1 : 0;
+  /* sources=(...) — array only. The old scalar source/source2/source3
+   * convention no longer exists in the Lotus PKGBUILD spec. */
+  pkg->nsources = bash_array(pbfile, "sources",
+                             (char *)pkg->source, LPM_PATH_MAX, MAX_SRCS);
 
-  /* source2, source3... */
-  for (int i = 2; i <= MAX_SRCS && pkg->nsources < MAX_SRCS; i++) {
-    char varname[16];
-    snprintf(varname, sizeof(varname), "source%d", i);
-    bash_scalar(pbfile, varname, pkg->source[pkg->nsources], MAX_STR);
-    if (pkg->source[pkg->nsources][0])
-      pkg->nsources++;
-  }
-
-  /* sha256sums */
-  bash_scalar(pbfile, "sha256sums", pkg->sha256sums[0], MAX_STR);
-  for (int i = 2; i <= MAX_SRCS; i++) {
-    char varname[32];
-    snprintf(varname, sizeof(varname), "sha256sums%d", i);
-    bash_scalar(pbfile, varname, pkg->sha256sums[i - 1], MAX_STR);
-  }
-  /* sha512sums */
-  bash_scalar(pbfile, "sha512sums", pkg->sha512sums[0], MAX_STR);
-  for (int i = 2; i <= MAX_SRCS; i++) {
-    char varname[32];
-    snprintf(varname, sizeof(varname), "sha512sums%d", i);
-    bash_scalar(pbfile, varname, pkg->sha512sums[i - 1], MAX_STR);
-  }
-  /* md5sums */
-  bash_scalar(pbfile, "md5sums", pkg->md5sums[0], MAX_STR);
-  for (int i = 2; i <= MAX_SRCS; i++) {
-    char varname[32];
-    snprintf(varname, sizeof(varname), "md5sums%d", i);
-    bash_scalar(pbfile, varname, pkg->md5sums[i - 1], MAX_STR);
-  }
+  /* checksums=(...) — one "algo:hex" (or "SKIP") entry per source[],
+   * same index. The old per-algorithm sha256sums/sha512sums/md5sums
+   * scalars no longer exist in the Lotus PKGBUILD spec. */
+  pkg->nchecksums = bash_array(pbfile, "checksums",
+                               (char *)pkg->checksums, 200, MAX_SRCS);
 
   pkg->has_check = bash_func_exists(pbfile, "check");
   pkg->has_uninstall = bash_func_exists(pbfile, "uninstall");
@@ -187,7 +181,8 @@ char *reverse_deps(const char *target) {
     snprintf(pbfile, sizeof(pbfile), "%s/pkgbuild_%s", LPM_PKGBUILD_DIR, iname);
 
     char deps[MAX_DEPS][LPM_NAME_MAX];
-    int n = bash_array(pbfile, "depends", deps, MAX_DEPS);
+    int n = bash_array(pbfile, "depends",
+                       (char *)deps, LPM_NAME_MAX, MAX_DEPS);
     for (int i = 0; i < n; i++) {
       char depname[LPM_NAME_MAX];
       strncpy(depname, deps[i], sizeof(depname) - 1);

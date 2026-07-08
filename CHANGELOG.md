@@ -1,5 +1,75 @@
 # Changelog
 
+<<<<<<< HEAD
+=======
+## [1.5.0] — 2026-07-05
+
+### Changed — PKGBUILD source/checksum format (BREAKING)
+
+Lotus's own PKGBUILD spec replaces Arch-style scalar source fields with
+plain bash arrays. **Old-format PKGBUILDs must be migrated** — the parser
+no longer recognizes the fields removed below.
+
+- **Removed**: `source`, `source2`, `source3`, `sha256sums`, `sha512sums`,
+  `md5sums`. These no longer exist anywhere in the parser (bash or fast C) —
+  a PKGBUILD still using them will simply have no sources/checksums parsed.
+- **Added**: `sources=(...)` and `checksums=(...)`, both plain bash arrays,
+  parsed with the existing `bash_array()` (bash parser) / `parse_array()`
+  (fast C parser) — no bespoke per-field parsing loops. `checksums[i]`
+  describes `sources[i]`, same index; each entry is `"algo:hex"`
+  (`sha512:`/`sha256:`/`md5:`) or `"SKIP"`. This format already existed
+  as the unified `checksums[]` field and `checksum_parse_unified()` — this
+  release is what actually wires the parsers up to populate it.
+- **Added**: `conflicts=(...)` and `backup=(...)` are now parsed the same
+  way for the bash-parser `Pkg` struct (previously only available via the
+  fast C parser's `PkgMeta`, or not at all for `conflicts`/`backup` on the
+  `Pkg` side).
+- Both array formats work: multi-line (one element per line, blank lines
+  and all) and single-line `sources=("a" "b")`. Whitespace alone separates
+  elements; a semicolon/comma between them is tolerated but was never
+  required and still isn't.
+
+### Fixed — two bugs found while doing this refactor
+
+- **Silent truncation of long checksums/URLs.** The fast C parser staged
+  `sources`/`checksums` array elements through a 128-byte-wide scratch
+  buffer before copying them into their real (4096- and 200-byte) fields.
+  A `sha512:` checksum is 135 characters — every SHA-512 checksum was
+  being silently cut to 128 characters before this fix, which would have
+  made every SHA-512-verified source fail with a bogus mismatch the first
+  time someone actually used one.
+- **Latent overflow risk in `bash_array()`.** It always read up to 4096
+  bytes (`MAX_STR`) per line regardless of the destination row's actual
+  width (128 bytes for `depends`/`makedepends`/etc.), and wrote into rows
+  typed as exactly that width. Harmless in practice so far because no
+  dependency name has ever approached 128 bytes, but not something to
+  leave in place while extending the same function to more callers.
+  `bash_array()` and `parse_array()` now take an explicit row-size
+  parameter and read through a fixed-size local buffer first, so neither
+  direction (truncate a wide row, overflow a narrow one) is possible
+  regardless of which array a caller points them at.
+- `pkgbuild_parse_fast()`'s bash-fallback path (used when the C parser
+  can't handle a PKGBUILD) never copied `conflicts[]`/`nconflicts` into
+  `PkgMeta` even though both already existed there — a pre-existing gap,
+  unrelated to this refactor, closed while touching the same code.
+
+### Housekeeping
+
+- `Pkg`'s legacy `sha256sums`/`sha512sums`/`md5sums` fields removed
+  (dead now that nothing populates them); added `nchecksums`,
+  `conflicts[]`/`nconflicts`, `backup[]`/`nbackup`.
+- `PkgMeta`'s on-disk cache layout changed (`nchecksums`, `backup[]`,
+  `nbackup` added) — `LPM_META_VERSION` bumped 5 → 6 so old `.meta`
+  cache files are correctly rejected and re-parsed rather than misread.
+- `build.c`'s `hash_detect()` / `pick_checksum()` (auto-detect algorithm
+  by hex length, fall back across three legacy fields) removed — dead
+  now that there's exactly one checksum field with an explicit prefix.
+  `verify_sources()` now delegates actual hashing to `cksum_verify()`
+  (`checksum.c`) instead of re-invoking `sha256sum`/`sha512sum`/`md5sum`
+  itself — one implementation of "hash a file and compare" instead of two.
+- README's PKGBUILD example updated to the new format.
+
+>>>>>>> 52b53ef (update: 2026-07-08 19:01:47)
 ## [1.4.2] — 2026-07-04
 
 ### Fixed — stale PKGBUILD caching in the build pipeline

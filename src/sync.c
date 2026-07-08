@@ -45,8 +45,7 @@
 
 /* ── Constants ───────────────────────────────────────────────────────── */
 
-#define REPO_BASE \
-    "https://raw.githubusercontent.com/draconmc1337/lotus-repository/main"
+/* REPO_BASE comes from lpm.h (single source of truth) */
 
 #define NREPOS      3
 #define DB_TIMEOUT  15          /* seconds for repo.db fetch            */

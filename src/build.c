@@ -228,129 +228,64 @@ static int fetch_url(const char *url, const char *dest) {
   return -1;
 }
 
-/* ── hash_detect ────────────────────────────────────────────────────── *
- * Detect checksum type by hex string length:                            *
- *   32 hex chars → MD5                                                  *
- *   64 hex chars → SHA-256                                              *
- *  128 hex chars → SHA-512                                              *
- * Returns algo name and tool name, or NULL if unrecognized.             */
-static void hash_detect(const char *h,
-                        const char **algo, const char **tool) {
-    size_t n = strlen(h);
-    /* verify it's all hex */
-    for (size_t k = 0; k < n; k++) {
-        char c = h[k];
-        if (!((c>='0'&&c<='9')||(c>='a'&&c<='f')||(c>='A'&&c<='F'))) {
-            *algo = NULL; *tool = NULL; return;
-        }
-    }
-    if      (n == 32)  { *algo = "md5";    *tool = "md5sum";    }
-    else if (n == 64)  { *algo = "sha256"; *tool = "sha256sum"; }
-    else if (n == 128) { *algo = "sha512"; *tool = "sha512sum"; }
-    else               { *algo = NULL;     *tool = NULL;        }
-}
+/* ── checksum_for_source ─────────────────────────────────────────────── *
+ * checksums[i] describes source[i]: "sha512:hex" / "sha256:hex" /       *
+ * "md5:hex" / "SKIP" — the only checksum format the Lotus PKGBUILD spec *
+ * supports (see include/lpm.h's Pkg struct). Returns the hex hash and   *
+ * sets *type_out, or returns NULL (type CKSUM_SKIP) when there's no     *
+ * checksum for this source — a missing entry is unverified, not an     *
+ * error; an explicit "SKIP" is the same thing spelled out.              */
+static const char *checksum_for_source(Pkg *pkg, int i, CksumType *type_out) {
+    static char hash_buf[200];
+    *type_out = CKSUM_SKIP;
 
-/* ── pick_checksum ───────────────────────────────────────────────────── *
- * For source index i, pick the best available checksum from pkg,        *
- * using auto-detection so field name mismatches don't matter.           *
- * Priority: sha512 > sha256 > md5 (strongest wins).                    *
- * If a field name is wrong (e.g. sha512 hash stored in md5sums=)       *
- * hash_detect() still identifies it correctly from the hex length.     */
-static const char *pick_checksum(Pkg *pkg, int i,
-                                 const char **algo_out,
-                                 const char **tool_out) {
-    static char _hash_buf[200];
+    if (i < 0 || i >= pkg->nchecksums || !pkg->checksums[i][0])
+        return NULL;
 
-    /* ── Priority 1: unified checksums[] field ──────────────────────── *
-     * Format: "sha512:hex", "sha256:hex", "md5:hex", "SKIP"            */
-    if (i < LPM_MAX_SOURCES && pkg->checksums[i][0] &&
-        strcmp(pkg->checksums[i], "SKIP") != 0) {
-        CksumType ct = checksum_parse_unified(pkg->checksums[i],
-                                               _hash_buf, sizeof(_hash_buf));
-        if (ct != CKSUM_SKIP && _hash_buf[0]) {
-            *algo_out = (ct == CKSUM_SHA512) ? "sha512" :
-                        (ct == CKSUM_SHA256) ? "sha256" : "md5";
-            *tool_out = (ct == CKSUM_SHA512) ? "sha512sum" :
-                        (ct == CKSUM_SHA256) ? "sha256sum" : "md5sum";
-            return _hash_buf;
-        }
-    }
+    CksumType ct = checksum_parse_unified(pkg->checksums[i],
+                                           hash_buf, sizeof(hash_buf));
+    if (ct == CKSUM_SKIP || !hash_buf[0])
+        return NULL;
 
-    /* ── Priority 2: legacy sha512sums/sha256sums/md5sums fields ────── *
-     * Still supported for backward compat — pick strongest available.  */
-    const char *candidates[3];
-    int nc = 0;
-    if (i < LPM_MAX_SOURCES) {
-        if (pkg->sha512sums[i][0] && strcmp(pkg->sha512sums[i], "SKIP") != 0)
-            candidates[nc++] = pkg->sha512sums[i];
-        if (pkg->sha256sums[i][0] && strcmp(pkg->sha256sums[i], "SKIP") != 0)
-            candidates[nc++] = pkg->sha256sums[i];
-        if (pkg->md5sums[i][0]    && strcmp(pkg->md5sums[i],    "SKIP") != 0)
-            candidates[nc++] = pkg->md5sums[i];
-    }
-
-    const char *best = NULL, *best_algo = NULL, *best_tool = NULL;
-    int best_strength = 0;
-    for (int k = 0; k < nc; k++) {
-        const char *a, *t;
-        hash_detect(candidates[k], &a, &t);
-        if (!a) continue;
-        int strength = (a[3]=='5' && a[4]=='1') ? 3 :
-                       (a[3]=='2')               ? 2 : 1;
-        if (strength > best_strength) {
-            best = candidates[k];
-            best_algo = a; best_tool = t;
-            best_strength = strength;
-        }
-    }
-    *algo_out = best_algo;
-    *tool_out = best_tool;
-    return best;
+    *type_out = ct;
+    return hash_buf;
 }
 
 /* ── verify_sources ──────────────────────────────────────────────────── *
  * Validates checksums for all sources declared in pkg against files     *
- * already downloaded into workspace directory ws.                       *
- * Supports sha256sums, sha512sums, md5sums; skips entries "SKIP".      *
- * Auto-detects hash type by hex length — field name doesn't matter.    *
- * Returns 1 if all checksums match, 0 on any mismatch.                 */
+ * already downloaded into workspace directory ws. Delegates the actual  *
+ * hashing to cksum_verify() (checksum.c) instead of re-invoking         *
+ * sha*sum/md5sum here — one implementation of "hash a file and compare" *
+ * for the whole codebase.                                               *
+ * Returns 1 if every source with a checksum matches (missing/SKIP       *
+ * entries don't count against this), 0 on any mismatch.                 */
 static int verify_sources(Pkg *pkg, const char *ws) {
   int ok = 1;
+
+  if (pkg->nchecksums > 0 && pkg->nchecksums != pkg->nsources)
+    fprintf(stderr, C_YELLOW "warning: " C_RESET
+            "%d source(s) but %d checksum(s) declared — the rest are"
+            " unverified, not rejected\n", pkg->nsources, pkg->nchecksums);
+
   for (int i = 0; i < pkg->nsources; i++) {
-    const char *algo = NULL, *tool = NULL;
-    const char *expected = pick_checksum(pkg, i, &algo, &tool);
-
-    if (!expected || !algo)
-      continue;  /* no checksum provided → skip */
-
     char *fname = strrchr(pkg->source[i], '/');
-    if (!fname) continue;
-    fname++;
+    fname = fname ? fname + 1 : pkg->source[i];
+
+    CksumType ct;
+    const char *expected = checksum_for_source(pkg, i, &ct);
+    if (!expected)
+      continue;  /* no checksum provided for this source → skip */
 
     char filepath[MAX_STR];
     snprintf(filepath, sizeof(filepath), "%s/%s", ws, fname);
 
-    char cmd[MAX_STR];
-    snprintf(cmd, sizeof(cmd), "%s '%s' 2>/dev/null | cut -d' ' -f1",
-             tool, filepath);
-    FILE *fp = popen(cmd, "r");
-    if (!fp) { ok = 0; continue; }
-
-    char actual[MAX_STR] = "";
-    if (fgets(actual, sizeof(actual), fp))
-      actual[strcspn(actual, "\n")] = '\0';
-    pclose(fp);
-
-    if (strcmp(actual, expected) != 0) {
-      fprintf(stderr,
-              C_RED "error: " C_RESET "%s mismatch for " C_BOLD "%s" C_RESET
-              "\n  expected: " C_CYAN "%s" C_RESET
-              "\n  got:      " C_RED  "%s" C_RESET "\n",
-              algo, fname, expected, actual);
+    if (cksum_verify(filepath, expected, ct) != 0)
       ok = 0;
-    } else {
-      printf("  ok [%s] %s\n", algo, fname);
-    }
+    else
+      printf("  ok [%s] %s\n",
+             ct == CKSUM_SHA512 ? "sha512" :
+             ct == CKSUM_SHA256 ? "sha256" : "md5",
+             fname);
   }
   return ok;
 }
@@ -903,8 +838,7 @@ void do_build_install(Pkg *pkg, const char *pbfile_orig, LpmConfig *cfg,
  * first successful fetch. Invalidates both the disk metadata cache and
  * the in-process PkgMeta cache so the next dep_resolve uses fresh data.
  * ══════════════════════════════════════════════════════════════════════ */
-#define REPO_BASE \
-  "https://raw.githubusercontent.com/draconmc1337/lotus-repository/main"
+/* REPO_BASE comes from lpm.h (single source of truth) */
 
 static const char *FOLDERS[] = { "base", "extra", "lotus" };
 #define NFOLDERS 3
@@ -1287,7 +1221,8 @@ static int fetch_pkgbuilds_parallel(const char **names, int n,
     return nfetched;
 }
 
-/* Legacy single-package entry point kept for cmd_fetch() */
+/* Single-package convenience wrapper around fetch_pkgbuilds_parallel().
+ * 6 call sites across build.c/lpkg.c — not legacy, not dead. */
 int fetch_pkgbuild(const char *name) {
     const char *missing[1];
     int nm = 0;
@@ -1344,12 +1279,35 @@ void pkg_patch_from_fast(Pkg *pkg, const char *qname,
     if (!pkg->pkgrel[0]  && fm.pkgrel[0])
         strncpy(pkg->pkgrel,  fm.pkgrel,  sizeof(pkg->pkgrel)  - 1);
 
-    /* ── source URLs: bash parser fails on "source = url" format ── *
-     * Always prefer C parser result — it handles both formats.     */
+    /* ── sources + checksums: bash parser fails on "key = (...)"    ── *
+     * (Lotus's spaced-equals style) format — always prefer the C      *
+     * parser result when bash came back empty. checksums[] is only   *
+     * patched together with source[] here, never on its own: the two *
+     * arrays are positionally paired (checksums[i] describes         *
+     * source[i]), and fm's pair is guaranteed to be mutually          *
+     * consistent since both came from the same parse. Patching       *
+     * checksums[] from fm while leaving a bash-parsed source[] in     *
+     * place could silently pair them up wrong.                       */
     if (fm.nsources > 0 && pkg->nsources == 0) {
         pkg->nsources = fm.nsources;
         for (int _i = 0; _i < fm.nsources && _i < LPM_MAX_SOURCES; _i++)
             strncpy(pkg->source[_i], fm.source[_i], LPM_PATH_MAX - 1);
+
+        pkg->nchecksums = fm.nchecksums;
+        for (int _i = 0; _i < fm.nchecksums && _i < LPM_MAX_SOURCES; _i++)
+            strncpy(pkg->checksums[_i], fm.checksums[_i], sizeof(pkg->checksums[_i]) - 1);
+    }
+
+    if (fm.nconflicts > 0 && pkg->nconflicts == 0) {
+        pkg->nconflicts = fm.nconflicts;
+        for (int _i = 0; _i < fm.nconflicts && _i < LPM_MAX_DEPS; _i++)
+            strncpy(pkg->conflicts[_i], fm.conflicts[_i], LPM_NAME_MAX - 1);
+    }
+
+    if (fm.nbackup > 0 && pkg->nbackup == 0) {
+        pkg->nbackup = fm.nbackup;
+        for (int _i = 0; _i < fm.nbackup && _i < LPM_MAX_BACKUP; _i++)
+            strncpy(pkg->backup[_i], fm.backup[_i], LPM_PATH_MAX - 1);
     }
 
     /* absolute last resort: use queue name */
@@ -2398,13 +2356,11 @@ int fetch_all_sources(char queue[][MAX_STR], int nqueue) {
       snprintf(label, sizeof(label), "%s-%s", pkg.pkgname, pkg.pkgver);
       snprintf(j->filename, LPM_NAME_MAX, "%s", label);
 
-      { const char *_algo, *_tool;
-        const char *_hash = pick_checksum(&pkg, i, &_algo, &_tool);
-        if (_hash && _algo) {
-          strncpy(j->checksum, _hash, 128);
-          if      (_algo[3] == '5' && _algo[4] == '1') j->cksum_type = CKSUM_SHA512;
-          else if (_algo[3] == '2')                     j->cksum_type = CKSUM_SHA256;
-          else                                          j->cksum_type = CKSUM_MD5;
+      { CksumType _ct;
+        const char *_hash = checksum_for_source(&pkg, i, &_ct);
+        if (_hash) {
+          strncpy(j->checksum, _hash, sizeof(j->checksum) - 1);
+          j->cksum_type = _ct;
         } else {
           j->cksum_type = CKSUM_SKIP;
         }
@@ -2464,7 +2420,7 @@ int fetch_all_sources(char queue[][MAX_STR], int nqueue) {
  *
  * ════════════════════════════════════════════════════════════════════════════ */
 
-/* Default base package list — mirrors lotus-repository/base/ */
+/* Default base package list — mirrors repo-lotus/base/ */
 static const char *BOOTSTRAP_BASE[] = {
     /* toolchain */
     "musl", "gcc", "binutils",

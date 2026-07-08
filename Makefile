@@ -5,7 +5,11 @@ CFLAGS  = -Wall -Wextra -O2 -Iinclude
 # Bump SOVERSION when ABI breaks (new/removed symbols, struct layout change)
 # Bump VERSION for any other change
 SOVERSION   = 1
+<<<<<<< HEAD
 VERSION     = 1.4.2
+=======
+VERSION     = 1.5.0
+>>>>>>> 52b53ef (update: 2026-07-08 19:01:47)
 
 # ── libllpm source files ──────────────────────────────────────────────
 LLPM_LIB_SRCS = \

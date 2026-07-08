@@ -65,7 +65,11 @@ CksumType checksum_parse_unified(const char *spec,
         if      (alen == 6 && !strncmp(algo, "sha512", 6)) return CKSUM_SHA512;
         else if (alen == 6 && !strncmp(algo, "sha256", 6)) return CKSUM_SHA256;
         else if (alen == 3 && !strncmp(algo, "md5",    3)) return CKSUM_MD5;
-        else if (alen == 4 && !strncmp(algo, "sha1",   4)) return CKSUM_SHA256; /* treat as sha256 */
+        /* unrecognized algo (incl. "sha1:", never a valid LPDF prefix —
+         * CksumType has no SHA1 variant) falls through to CKSUM_SKIP.
+         * Previously this mislabeled sha1: hashes as CKSUM_SHA256, which
+         * would silently fail verification against the real sha256 of the
+         * file instead of rejecting the recipe outright. */
         return CKSUM_SKIP;
     }
 

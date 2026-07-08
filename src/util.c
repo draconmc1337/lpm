@@ -152,7 +152,8 @@ int version_compare(const char *a, const char *b) {
     return 0;
 }
 
-/* kept for compat — wraps version_compare */
+/* boolean convenience wrapper around version_compare — used by pkgbuild.c
+ * dependency version checks (>=, <=, etc). Not a compat shim. */
 int version_gte(const char *have, const char *need) {
     return version_compare(have, need) >= 0;
 }

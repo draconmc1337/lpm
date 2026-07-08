@@ -25,7 +25,21 @@
 #include <unistd.h>
 
 /* ── version ─────────────────────────────────────────────────────────── */
+<<<<<<< HEAD
 #define LPM_VERSION "1.4.2"
+=======
+#define LPM_VERSION "1.5.0"
+
+/* ── upstream repository ────────────────────────────────────────────────
+ * Single source of truth for the repo-lotus base URL. build.c, sync.c and
+ * dep.c all fetch from this — previously each file redefined REPO_BASE
+ * independently, and all three still pointed at the archived
+ * lotus-repository repo after the migration to repo-lotus. Do not
+ * redefine REPO_BASE anywhere else.
+ */
+#define REPO_BASE "https://raw.githubusercontent.com/draconmc1337/repo-lotus/main"
+
+>>>>>>> 52b53ef (update: 2026-07-08 19:01:47)
 #define LPM_LOCK_FILE "/var/lock/lpm.lock"
 #define LPM_DB_DIR "/var/lib/lpm/db"
 #define LPM_DB "/var/lib/lpm/db/installed"
@@ -53,7 +67,10 @@
 #define LPM_URL_MAX 4096
 #define LPM_PATH_MAX 4096
 
-/* compat aliases — old files use these names */
+/* short-form aliases — used throughout src/ (80+ call sites) in preference
+ * to the LPM_-prefixed names below. Single source of truth, not a
+ * compat/legacy shim: MAX_STR is #define'd directly from LPM_PATH_MAX so
+ * the two can never drift apart. */
 #define MAX_STR LPM_PATH_MAX
 #define MAX_DEPS LPM_MAX_DEPS
 #define MAX_SRCS LPM_MAX_SOURCES
@@ -169,16 +186,20 @@ typedef struct {
   int nrecommends;
   char makedepends[LPM_MAX_DEPS][LPM_NAME_MAX];
   int nmakedepends;
+  char conflicts[LPM_MAX_DEPS][LPM_NAME_MAX];
+  int nconflicts;
   char replaces[LPM_MAX_DEPS][LPM_NAME_MAX]; /* package rename */
   int nreplaces;
+  char backup[LPM_MAX_BACKUP][LPM_PATH_MAX];
+  int nbackup;
   char source[LPM_MAX_SOURCES][LPM_PATH_MAX];
   int nsources;
-  /* legacy fields — kept for bash parser compat */
-  char sha256sums[LPM_MAX_SOURCES][129];
-  char sha512sums[LPM_MAX_SOURCES][129];
-  char md5sums[LPM_MAX_SOURCES][33];
-  /* unified checksum: "sha512:hex" / "sha256:hex" / "md5:hex" / "SKIP" */
+  /* unified checksum: "sha512:hex" / "sha256:hex" / "md5:hex" / "SKIP" —
+   * checksums[i] corresponds to source[i]. This is the only checksum
+   * format the Lotus PKGBUILD spec supports; there is no per-algorithm
+   * scalar fallback (see verify_sources() in build.c). */
   char checksums[LPM_MAX_SOURCES][200];
+  int nchecksums;
   char pbfile[LPM_PATH_MAX];
   int has_check;
   int has_uninstall;
@@ -344,7 +365,10 @@ typedef struct {
 /* ── PkgMeta — fast parser cache struct (pkgbuild_parser.c) ─────────── */
 #define LPM_META_CACHE_DIR "/var/lib/lpm/cache"
 #define LPM_META_MAGIC   0x4C504D43
-#define LPM_META_VERSION 5
+#define LPM_META_VERSION 6  /* bumped: struct layout changed (nchecksums,
+                             * backup[]/nbackup added) — old .meta cache
+                             * files are correctly rejected and re-parsed,
+                             * see meta_cache_read()'s version check.     */
 
 typedef struct __attribute__((packed)) {
   uint32_t magic;
@@ -367,7 +391,10 @@ typedef struct __attribute__((packed)) {
   long    inst_size;  /* installed size in bytes (binary only) */
   uint8_t nsources;
   char    source[LPM_MAX_SOURCES][LPM_PATH_MAX];   /* source URLs/files */
+  uint8_t nchecksums;
   char    checksums[LPM_MAX_SOURCES][200];          /* "algo:hex" unified */
+  char    backup[LPM_MAX_BACKUP][LPM_PATH_MAX];
+  uint8_t nbackup;
   char    groups[LPM_MAX_DEPS][LPM_NAME_MAX];       /* package groups */
   uint8_t ngroups;
 } PkgMeta;
@@ -452,8 +479,11 @@ int pkg_run_package(Package *pkg);
 int pkg_run_hook(const char *hook, Package *pkg);
 /* build.c — fetch a single PKGBUILD from the remote repo into LPM_PKGBUILD_DIR */
 int fetch_pkgbuild(const char *name);
+<<<<<<< HEAD
 
 int fetch_pkgbuild(const char *name);
+=======
+>>>>>>> 52b53ef (update: 2026-07-08 19:01:47)
 int fetch_all_sources(char queue[][MAX_STR], int nqueue);
 void do_build_install(Pkg *pkg, const char *pbfile_orig, LpmConfig *cfg, int qi, int nqueue, const LpmFlags *flags);
 /* After pkgbuild_parse() (bash parser), fill any empty pkgname/pkgver/pkgrel

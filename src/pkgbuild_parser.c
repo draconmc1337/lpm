@@ -109,15 +109,26 @@ static void expand_vars(const ParseState *st, const char *in,
 }
 
 /* ── parse_array ─────────────────────────────────────────────────────
- * New strict format:  key = ("elem1"; "elem2"; "elem3")
- *   - Elements MUST be double-quoted
- *   - Elements MUST be separated by "; " (semicolon + space)
- *   - Missing space after ; is a parse error (element skipped)
- *   - Multiline arrays supported: ) can be on a later line
- * Returns number of elements parsed into out[][]. */
+ * Bash-compatible array syntax:  key = ("elem1" "elem2" "elem3")
+ *   - Elements may be double- or single-quoted, or bare words
+ *   - Elements are separated by whitespace (newlines included, so
+ *     multi-line arrays with one element per line just work); a
+ *     semicolon or comma between elements is also tolerated but never
+ *     required — plain `sources=("url1" "url2")` and the multi-line
+ *     form are both valid, there is no Lotus-specific separator.
+ *   - Multiline arrays supported: the closing ')' can be on a later line
+ *
+ * out is a flat pointer into a 2D array whose row width is rowsz (e.g.
+ * (char *)m->depends, LPM_NAME_MAX or (char *)m->source, LPM_PATH_MAX).
+ * Parsing always happens into a LPM_PATH_MAX-sized local scratch buffer
+ * regardless of rowsz, so long elements (a full sha512: checksum is 135
+ * chars; some source URLs run longer than LPM_NAME_MAX) are only ever
+ * truncated at the real row width, not at some earlier, narrower stage.
+ *
+ * Returns number of elements parsed into out. */
 static int parse_array(const char *val_start, FILE *fp,
                        const ParseState *st,
-                       char out[][LPM_NAME_MAX], int maxn) {
+                       char *out, size_t rowsz, int maxn) {
     char buf[4096];
     snprintf(buf, sizeof(buf), "%s", val_start);
 
@@ -137,12 +148,13 @@ static int parse_array(const char *val_start, FILE *fp,
     int n = 0;
 
     while (*p && n < maxn) {
-        /* skip whitespace, semicolons (lpm sep), commas */
+        /* skip whitespace, semicolons, commas — any of these separate
+         * elements, but none of them is required (see docstring above) */
         while (*p && (isspace((unsigned char)*p) || *p == ';' || *p == ','))
             p++;
         if (!*p) break;
 
-        char elem[LPM_NAME_MAX];
+        char elem[LPM_PATH_MAX];
         int ei = 0;
         memset(elem, 0, sizeof(elem));
 
@@ -162,9 +174,12 @@ static int parse_array(const char *val_start, FILE *fp,
         elem[ei] = 0;
 
         if (elem[0]) {
-            char expanded[LPM_NAME_MAX];
+            char expanded[LPM_PATH_MAX];
             expand_vars(st, elem, expanded, sizeof(expanded));
-            strncpy(out[n++], expanded, LPM_NAME_MAX - 1);
+            char *dst = out + (size_t)n * rowsz;
+            strncpy(dst, expanded, rowsz - 1);
+            dst[rowsz - 1] = '\0';
+            n++;
         }
     }
     return n;
@@ -264,62 +279,46 @@ static int parse_pkgbuild_c(const char *pbfile, PkgMeta *m) {
             m->dl_size = atol(val);
         } else if (!strcmp(key, "instsize") || !strcmp(key, "inst_size")) {
             m->inst_size = atol(val);
-        } else if (!strcmp(key, "source") && m->nsources < LPM_MAX_SOURCES) {
-            /* scalar source = "url" (legacy) */
-            char sv[LPM_PATH_MAX];
-            strncpy(sv, val, sizeof(sv)-1); sv[sizeof(sv)-1] = 0;
-            strip_quotes(sv); rstrip(sv);
-            if (sv[0]) {
-                strncpy(m->source[m->nsources], sv, LPM_PATH_MAX-1);
-                m->nsources++;
-            }
         } else if (!strcmp(key, "sources")) {
-            /* array: sources = ("url1" "url2" ...) */
-            char arr[LPM_MAX_SOURCES][LPM_NAME_MAX];
-            int n = parse_array(val, fp, &st, arr, LPM_MAX_SOURCES);
-            for (int _i = 0; _i < n && m->nsources < LPM_MAX_SOURCES; _i++) {
-                if (arr[_i][0])
-                    strncpy(m->source[m->nsources++], arr[_i], LPM_PATH_MAX-1);
-            }
-        } else if (!strcmp(key, "source2") || !strcmp(key, "source3") ||
-                   !strcmp(key, "source4") || !strcmp(key, "source5")) {
-            /* sourceN = "url" (legacy multi-source) */
-            if (m->nsources < LPM_MAX_SOURCES) {
-                char sv[LPM_PATH_MAX];
-                strncpy(sv, val, sizeof(sv)-1); sv[sizeof(sv)-1] = 0;
-                strip_quotes(sv); rstrip(sv);
-                if (sv[0]) {
-                    strncpy(m->source[m->nsources], sv, LPM_PATH_MAX-1);
-                    m->nsources++;
-                }
-            }
+            /* array: sources = ("url1" "url2" "patches/foo.patch" ...)
+             * Parsed straight into m->source at its real LPM_PATH_MAX
+             * width — no legacy scalar source/source2/source3 form, and
+             * no intermediate narrower buffer to truncate long URLs. */
+            m->nsources = (uint8_t)parse_array(val, fp, &st,
+                          (char *)m->source, LPM_PATH_MAX, LPM_MAX_SOURCES);
         } else if (!strcmp(key, "checksums")) {
-            /* array: checksums = ("sha512:abc..." "sha256:def..." "SKIP") */
-            char arr[LPM_MAX_SOURCES][LPM_NAME_MAX];
-            int n = parse_array(val, fp, &st, arr, LPM_MAX_SOURCES);
-            for (int _i = 0; _i < n && _i < LPM_MAX_SOURCES; _i++)
-                strncpy(m->checksums[_i], arr[_i], 199);
+            /* array: checksums = ("sha512:abc..." "SKIP" ...), one entry
+             * per sources[] at the same index. Parsed at the real
+             * 200-byte width — the previous 128-byte staging buffer
+             * silently truncated any sha512: hash (135 chars: 7-char
+             * prefix + 128 hex digits). */
+            m->nchecksums = (uint8_t)parse_array(val, fp, &st,
+                            (char *)m->checksums, 200, LPM_MAX_SOURCES);
+        } else if (!strcmp(key, "backup")) {
+            /* array: backup = ("etc/foo.conf" "etc/bar.conf") */
+            m->nbackup = (uint8_t)parse_array(val, fp, &st,
+                         (char *)m->backup, LPM_PATH_MAX, LPM_MAX_BACKUP);
         } else if (!strcmp(key, "groups")) {
             /* array: groups = ("xlib" "x11") */
             int n = parse_array(val, fp, &st,
-                                m->groups, LPM_MAX_DEPS);
+                                (char *)m->groups, LPM_NAME_MAX, LPM_MAX_DEPS);
             m->ngroups = (uint8_t)n;
-        } /* ── array fields: ("a"; "b"; "c") ── */
+        } /* ── array fields: ("a" "b" "c") ── */
         else if (!strcmp(key, "depends")) {
             m->ndepends = (uint8_t)parse_array(val, fp, &st,
-                           m->depends, LPM_MAX_DEPS);
+                           (char *)m->depends, LPM_NAME_MAX, LPM_MAX_DEPS);
         } else if (!strcmp(key, "makedepends")) {
             m->nmakedepends = (uint8_t)parse_array(val, fp, &st,
-                               m->makedepends, LPM_MAX_DEPS);
+                               (char *)m->makedepends, LPM_NAME_MAX, LPM_MAX_DEPS);
         } else if (!strcmp(key, "recommends")) {
             m->nrecommends = (uint8_t)parse_array(val, fp, &st,
-                              m->recommends, LPM_MAX_DEPS);
+                              (char *)m->recommends, LPM_NAME_MAX, LPM_MAX_DEPS);
         } else if (!strcmp(key, "conflicts")) {
             m->nconflicts = (uint8_t)parse_array(val, fp, &st,
-                             m->conflicts, LPM_MAX_DEPS);
+                             (char *)m->conflicts, LPM_NAME_MAX, LPM_MAX_DEPS);
         } else if (!strcmp(key, "replaces")) {
             m->nreplaces = (uint8_t)parse_array(val, fp, &st,
-                            m->replaces, LPM_MAX_DEPS);
+                            (char *)m->replaces, LPM_NAME_MAX, LPM_MAX_DEPS);
         }
     }
 
@@ -435,7 +434,11 @@ int pkgbuild_parse_fast(const char *pbfile, PkgMeta *m) {
         m->ndepends    = (uint8_t)tmp_pkg.ndepends;
         m->nrecommends = (uint8_t)tmp_pkg.nrecommends;
         m->nmakedepends= (uint8_t)tmp_pkg.nmakedepends;
+        m->nconflicts  = (uint8_t)tmp_pkg.nconflicts;
         m->nreplaces   = (uint8_t)tmp_pkg.nreplaces;
+        m->nsources    = (uint8_t)tmp_pkg.nsources;
+        m->nchecksums  = (uint8_t)tmp_pkg.nchecksums;
+        m->nbackup     = (uint8_t)tmp_pkg.nbackup;
         m->has_check   = tmp_pkg.has_check;
         for (int i = 0; i < tmp_pkg.ndepends; i++)
             strncpy(m->depends[i], tmp_pkg.depends[i], LPM_NAME_MAX-1);
@@ -443,8 +446,16 @@ int pkgbuild_parse_fast(const char *pbfile, PkgMeta *m) {
             strncpy(m->recommends[i], tmp_pkg.recommends[i], LPM_NAME_MAX-1);
         for (int i = 0; i < tmp_pkg.nmakedepends; i++)
             strncpy(m->makedepends[i], tmp_pkg.makedepends[i], LPM_NAME_MAX-1);
+        for (int i = 0; i < tmp_pkg.nconflicts; i++)
+            strncpy(m->conflicts[i], tmp_pkg.conflicts[i], LPM_NAME_MAX-1);
         for (int i = 0; i < tmp_pkg.nreplaces; i++)
             strncpy(m->replaces[i], tmp_pkg.replaces[i], LPM_NAME_MAX-1);
+        for (int i = 0; i < tmp_pkg.nsources; i++)
+            strncpy(m->source[i], tmp_pkg.source[i], LPM_PATH_MAX-1);
+        for (int i = 0; i < tmp_pkg.nchecksums; i++)
+            strncpy(m->checksums[i], tmp_pkg.checksums[i], 199);
+        for (int i = 0; i < tmp_pkg.nbackup; i++)
+            strncpy(m->backup[i], tmp_pkg.backup[i], LPM_PATH_MAX-1);
     }
 
     /* 4. write cache for next time */

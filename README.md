@@ -124,8 +124,14 @@ pkgver="3.3.0"
 pkgrel="1"
 depends=("ncurses")
 makedepends=()
-source="https://github.com/htop-dev/htop/releases/download/${pkgver}/htop-${pkgver}.tar.xz"
-sha256sums="abc123..."
+
+sources=(
+    "https://github.com/htop-dev/htop/releases/download/${pkgver}/htop-${pkgver}.tar.xz"
+)
+
+checksums=(
+    "sha256:abc123..."
+)
 
 build() {
     tar -xf htop-${pkgver}.tar.xz
@@ -144,6 +150,20 @@ package() {
     make DESTDIR="$pkgdir" install
 }
 ```
+
+`sources` is a bash array — one entry per file to fetch, in the order they're
+needed. Entries can be full URLs or paths relative to the PKGBUILD (e.g.
+`"patches/fix1.patch"` for a patch shipped alongside it); either form is
+copied through to the downloader exactly as written, never rewritten.
+
+`checksums` is a parallel array — `checksums[i]` describes `sources[i]`, same
+index. Each entry is `"<algo>:<hex>"` (`sha512:`, `sha256:`, or `md5:`) or the
+literal string `"SKIP"` to leave that source unverified. The algorithm is
+read entirely from the prefix; there's no separate field per hash type.
+
+Both arrays accept either the multi-line form shown above or a single-line
+`sources=("url1" "url2")` — whitespace alone separates elements, no special
+punctuation required.
 
 `uninstall()` — can exist in the file, **will never be executed**. Removal is handled entirely by LPM via `files.list`. This is intentional and not changing.
 

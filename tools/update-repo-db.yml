@@ -1,5 +1,5 @@
 # .github/workflows/update-repo-db.yml
-# Put this in lotus-repository/.github/workflows/
+# Put this in repo-lotus/.github/workflows/
 #
 # Triggers: any push to main that touches a pkgbuild_ file or .lpkg file
 # → auto-regenerates base.db / extra.db / lotus.db and commits back
