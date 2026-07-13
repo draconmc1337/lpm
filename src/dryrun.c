@@ -184,16 +184,16 @@ int dryrun_build(char **pkgnames, int npkgs, DryRun *dr) {
         char pbfile[LPM_PATH_MAX + LPM_NAME_MAX + 16];
         snprintf(pbfile, sizeof(pbfile),
                  "%s/pkgbuild_%s", LPM_PKGBUILD_DIR, name);
-        PkgMeta meta;
+        Package meta;
         memset(&meta, 0, sizeof(meta));
         if (pkgbuild_parse_fast(pbfile, &meta) == 0) {
             char ver[LPM_VER_MAX + 16];
-            snprintf(ver, sizeof(ver), "%s-%s", meta.pkgver, meta.pkgrel);
+            snprintf(ver, sizeof(ver), "%s-%s", meta.version, meta.release);
             snprintf(op->to_ver, sizeof(op->to_ver), "%s", ver);
 
             /* size: rough heuristic — source pkgs ~10 MB dl, binary varies */
-            op->dl_bytes   = meta.is_binary ? 30*1024*1024 : 10*1024*1024;
-            op->inst_bytes = meta.is_binary ? 80*1024*1024 : 50*1024*1024;
+            op->dl_bytes   = (meta.type == PKG_TYPE_BINARY) ? 30*1024*1024 : 10*1024*1024;
+            op->inst_bytes = (meta.type == PKG_TYPE_BINARY) ? 80*1024*1024 : 50*1024*1024;
 
             /* conflict detection */
             for (int ci = 0; ci < meta.nconflicts; ci++) {

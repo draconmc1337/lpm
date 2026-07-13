@@ -84,7 +84,6 @@ int lpm_prompt_recommends(const char *pkgname, const LpmFlags *flags,
             printf("  " C_BOLD "%s" C_RESET "\n", rec);
         }
 
-        /* skip jika g_cfg.default_yes → install semua tanpa tanya */
         int do_install = 0;
         if (flags && flags->no_confirm) {
             do_install = 1;

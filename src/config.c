@@ -23,11 +23,6 @@ void lpm_config_defaults(LpmConfig *cfg) {
     cfg->max_dl_threads = 4; cfg->verify_sig = 0;
     strncpy(cfg->downloader, "auto", sizeof(cfg->downloader)-1);
     strncpy(cfg->profile, "generic", sizeof(cfg->profile)-1);
-    /* compat fields for old API */
-    cfg->default_yes    = 0;
-    cfg->default_strict = 0;
-    cfg->run_check      = 0;
-    cfg->strict_build   = 0;
     cfg->n_critical     = 0;
     cfg->n_ignore       = 0;
     strncpy(cfg->log_dir,   LPM_LOG_DIR,   sizeof(cfg->log_dir)-1);
@@ -55,10 +50,6 @@ static void apply_kv(LpmConfig *cfg, const char *key, const char *val) {
         else if (!strcmp(key,"VERIFY_SIG"))      cfg->verify_sig      = parse_bool(val);
         else if (!strcmp(key,"DOWNLOADER"))      strncpy(cfg->downloader, val, sizeof(cfg->downloader)-1);
         else if (!strcmp(key,"PROFILE"))         strncpy(cfg->profile, val, sizeof(cfg->profile)-1);
-        else if (!strcmp(key,"DEFAULT_YES"))     cfg->default_yes     = parse_bool(val);
-        else if (!strcmp(key,"DEFAULT_STRICT"))  cfg->default_strict  = parse_bool(val);
-        else if (!strcmp(key,"RUN_CHECK"))       cfg->run_check       = parse_bool(val);
-        else if (!strcmp(key,"STRICT_BUILD"))    cfg->strict_build    = parse_bool(val);
         else if (!strcmp(key,"CriticalPkg"))     add_pkg_list(cfg->critical_pkgs, &cfg->n_critical, val);
         else if (!strcmp(key,"IgnorePkg"))       add_pkg_list(cfg->ignore_pkgs,   &cfg->n_ignore,   val);
         else if (!strcmp(key,"LogDir"))          strncpy(cfg->log_dir,   val, sizeof(cfg->log_dir)-1);
@@ -161,5 +152,8 @@ void lpm_config_dump(const LpmConfig *cfg) {
     printf("  DOWNLOADER= %s\n", cfg->downloader);
     printf("  CriticalPkg(%d): ", cfg->n_critical);
     for (int i=0;i<cfg->n_critical;i++) printf("%s ", cfg->critical_pkgs[i]);
+    printf("\n");
+    printf("  IgnorePkg(%d): ", cfg->n_ignore);
+    for (int i=0;i<cfg->n_ignore;i++) printf("%s ", cfg->ignore_pkgs[i]);
     printf("\n");
 }

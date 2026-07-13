@@ -1,20 +1,24 @@
 /*
- * pkgbuild_parser.c — Fast C parser for LPM PKGBUILD metadata
+ * pkgbuild_parser.c — the LPDF v1 parser (lpm 2.0)
  *
- * Replaces popen("bash -c 'source ...'") for static fields.
- * Bash is only invoked for dynamic evaluation (source= URLs with ${vars})
- * and actual build functions (build(), package()).
+ * The only parser: fills Package directly, no bash involved and no
+ * fallback parser. LPDF v1 is a static, declarative format by design —
+ * a parse failure here means the file is malformed, not that it needs a
+ * second parsing strategy. Bash is only ever invoked later, separately,
+ * to actually execute build()/check()/package() (do_build_install() in
+ * build.c) — never to parse metadata.
  *
  * Supports:
- *   scalar:  key=value, key="value", key='value'
- *   array:   key=(a b c), key=("a" "b" "c"), multiline arrays
+ *   scalar:  key = "value"  (also bash-style key=value, key="value")
+ *   array:   key = ("a" "b" "c"), multiline arrays
  *   comment: # ignored
  *   variable expansion: ${pkgver}, ${pkgname} within same file
  *
  * Cache:
- *   Parsed metadata serialized to LPM_CACHE_DIR/<pkgname>.meta
- *   Invalidated when PKGBUILD mtime > cache mtime
- *   Format: fixed-size binary struct PkgMeta
+ *   Parsed Package serialized to LPM_META_CACHE_DIR/<pkgname>.meta,
+ *   wrapped in a small MetaCacheEntry envelope (magic/version/mtime).
+ *   Invalidated when PKGBUILD mtime > cache mtime, or by
+ *   pkgbuild_invalidate_cache() after `lpm update`.
  */
 
 #define _XOPEN_SOURCE 700
@@ -28,11 +32,8 @@
 
 
 /* ── Cache directory ─────────────────────────────────────────────────── */
-// LPM_META_CACHE_DIR defined in lpm.h
-// LPM_META_MAGIC defined in lpm.h
-// LPM_META_VERSION defined in lpm.h
-
-/* PkgMeta struct defined in lpm.h */
+// LPM_META_CACHE_DIR / LPM_META_MAGIC / LPM_META_VERSION / MetaCacheEntry
+// all defined in lpm.h
 
 /* ── Internal parser state ───────────────────────────────────────────── */
 typedef struct {
@@ -191,12 +192,21 @@ static int parse_array(const char *val_start, FILE *fp,
  *   Arrays:  key = ("a"; "b"; "c")  (double-quote + "; " separator)    *
  *   pkgtype = "binary" | "source" | "bin" | "src"                      *
  * Returns 0 on success, -1 on file error or format violation.           */
-static int parse_pkgbuild_c(const char *pbfile, PkgMeta *m) {
+static int parse_pkgbuild_c(const char *pbfile, Package *m) {
     FILE *fp = fopen(pbfile, "r");
     if (!fp) return -1;
 
     ParseState st;
     memset(&st, 0, sizeof(st));
+
+    /* staged sources=/checksums= — combined into m->sources[] (unified
+     * Source struct) after the whole file is read, since the two keys
+     * can appear in either order. */
+    char src_urls[LPM_MAX_SOURCES][LPM_PATH_MAX];
+    char src_cksums[LPM_MAX_SOURCES][200];
+    int  n_src_urls = 0, n_src_cksums = 0;
+    memset(src_urls, 0, sizeof(src_urls));
+    memset(src_cksums, 0, sizeof(src_cksums));
 
     int line_no = 0;
     char line[4096];
@@ -207,18 +217,23 @@ static int parse_pkgbuild_c(const char *pbfile, PkgMeta *m) {
         if (*p == '#' || *p == '\0' || *p == '\n') continue;
         rstrip(p);
 
-        /* ── function declarations: build() / package() / check() ── */
+        /* ── function declarations: only ones anything actually consumes.
+         * build()/package() run unconditionally in do_build_install(), so
+         * they don't need a has_* flag. check() gates check() execution
+         * there; pre_install()/post_install() gate pkg_run_hook() from
+         * tx_commit() (transaction.c). remove()/uninstall() have no
+         * consumer yet — package removal doesn't run hooks (tx_commit()
+         * only processes tx->install, not tx->remove) — add that back
+         * together with the removal hook path, not before it exists. */
         {
             char *eq_pos   = strchr(p, '=');
             char *open_pos = strchr(p, '(');
             int is_func = open_pos
                           && (!eq_pos || open_pos < eq_pos);
             if (is_func) {
-                if      (strncmp(p, "build",     5) == 0) m->has_build   = 1;
-                else if (strncmp(p, "check",     5) == 0) m->has_check   = 1;
-                else if (strncmp(p, "package",   7) == 0) m->has_package = 1;
-                else if (strncmp(p, "remove",    6) == 0) m->has_remove  = 1;
-                else if (strncmp(p, "uninstall", 9) == 0) m->has_remove  = 1;
+                if      (strncmp(p, "check",        5)  == 0) m->has_check        = 1;
+                else if (strncmp(p, "pre_install",  11) == 0) m->has_pre_install  = 1;
+                else if (strncmp(p, "post_install", 12) == 0) m->has_post_install = 1;
                 continue;
             }
         }
@@ -256,14 +271,14 @@ static int parse_pkgbuild_c(const char *pbfile, PkgMeta *m) {
 
         /* ── scalar fields ── */
         if (!strcmp(key, "pkgname")) {
-            strncpy(m->pkgname, val, LPM_NAME_MAX-1);
-            strip_quotes(m->pkgname); rstrip(m->pkgname);
+            strncpy(m->name, val, LPM_NAME_MAX-1);
+            strip_quotes(m->name); rstrip(m->name);
         } else if (!strcmp(key, "pkgver")) {
-            strncpy(m->pkgver, val, LPM_VER_MAX-1);
-            strip_quotes(m->pkgver); rstrip(m->pkgver);
+            strncpy(m->version, val, LPM_VER_MAX-1);
+            strip_quotes(m->version); rstrip(m->version);
         } else if (!strcmp(key, "pkgrel")) {
-            strncpy(m->pkgrel, val, 15);
-            strip_quotes(m->pkgrel); rstrip(m->pkgrel);
+            strncpy(m->release, val, 15);
+            strip_quotes(m->release); rstrip(m->release);
         } else if (!strcmp(key, "pkgdesc") || !strcmp(key, "description")) {
             strncpy(m->description, val, 511);
             strip_quotes(m->description); rstrip(m->description);
@@ -274,26 +289,27 @@ static int parse_pkgbuild_c(const char *pbfile, PkgMeta *m) {
             char tmp[32];
             strncpy(tmp, val, sizeof(tmp)-1); tmp[31] = '\0';
             strip_quotes(tmp); rstrip(tmp);
-            m->is_binary = (!strcmp(tmp, "binary") || !strcmp(tmp, "bin"));
+            m->type = (!strcmp(tmp, "binary") || !strcmp(tmp, "bin"))
+                      ? PKG_TYPE_BINARY : PKG_TYPE_SOURCE;
         } else if (!strcmp(key, "dlsize") || !strcmp(key, "dl_size")) {
             m->dl_size = atol(val);
         } else if (!strcmp(key, "instsize") || !strcmp(key, "inst_size")) {
             m->inst_size = atol(val);
         } else if (!strcmp(key, "sources")) {
             /* array: sources = ("url1" "url2" "patches/foo.patch" ...)
-             * Parsed straight into m->source at its real LPM_PATH_MAX
-             * width — no legacy scalar source/source2/source3 form, and
-             * no intermediate narrower buffer to truncate long URLs. */
-            m->nsources = (uint8_t)parse_array(val, fp, &st,
-                          (char *)m->source, LPM_PATH_MAX, LPM_MAX_SOURCES);
+             * Staged here; combined with checksums[] into m->sources[]
+             * (the unified Source struct) once the whole file is read —
+             * sources= and checksums= can appear in either order. */
+            n_src_urls = (int)parse_array(val, fp, &st,
+                          (char *)src_urls, LPM_PATH_MAX, LPM_MAX_SOURCES);
         } else if (!strcmp(key, "checksums")) {
             /* array: checksums = ("sha512:abc..." "SKIP" ...), one entry
              * per sources[] at the same index. Parsed at the real
-             * 200-byte width — the previous 128-byte staging buffer
+             * 200-byte width — a previous 128-byte staging buffer
              * silently truncated any sha512: hash (135 chars: 7-char
              * prefix + 128 hex digits). */
-            m->nchecksums = (uint8_t)parse_array(val, fp, &st,
-                            (char *)m->checksums, 200, LPM_MAX_SOURCES);
+            n_src_cksums = (int)parse_array(val, fp, &st,
+                            (char *)src_cksums, 200, LPM_MAX_SOURCES);
         } else if (!strcmp(key, "backup")) {
             /* array: backup = ("etc/foo.conf" "etc/bar.conf") */
             m->nbackup = (uint8_t)parse_array(val, fp, &st,
@@ -319,16 +335,54 @@ static int parse_pkgbuild_c(const char *pbfile, PkgMeta *m) {
         } else if (!strcmp(key, "replaces")) {
             m->nreplaces = (uint8_t)parse_array(val, fp, &st,
                             (char *)m->replaces, LPM_NAME_MAX, LPM_MAX_DEPS);
+        } else if (!strcmp(key, "provides")) {
+            m->nprovides = (uint8_t)parse_array(val, fp, &st,
+                            (char *)m->provides, LPM_NAME_MAX, LPM_MAX_DEPS);
         }
     }
 
     fclose(fp);
-    return (m->pkgname[0] && m->pkgver[0]) ? 0 : -1;
+
+    if (!m->name[0] || !m->version[0]) return -1;
+
+    /* ── combine sources[] + checksums[] into m->sources[] ─────────────
+     * LPDF v1: every source needs a checksum entry (SKIP if genuinely
+     * unwanted) — a missing entry is a spec violation, not something to
+     * default silently. checksum_parse_unified() is the single source of
+     * truth for what's valid; CKSUM_INVALID here fails the whole parse. */
+    int nsrc = n_src_urls;
+    if (n_src_cksums > nsrc) nsrc = n_src_cksums;
+    if (nsrc > LPM_MAX_SOURCES) nsrc = LPM_MAX_SOURCES;
+
+    for (int i = 0; i < nsrc; i++) {
+        Source *s = &m->sources[i];
+        strncpy(s->url, src_urls[i], LPM_URL_MAX - 1);
+
+        const char *base = strrchr(s->url, '/');
+        strncpy(s->filename, base ? base + 1 : s->url, LPM_NAME_MAX - 1);
+
+        strncpy(s->checksum, src_cksums[i], sizeof(s->checksum) - 1);
+        s->cksum_type = checksum_parse_unified(s->checksum, NULL, 0);
+        if (s->cksum_type == CKSUM_INVALID) {
+            fprintf(stderr,
+                "error: %s: invalid checksum format for source[%d] (%s)\n"
+                "  expected:\n"
+                "    sha512:\n"
+                "    sha256:\n"
+                "    md5:\n"
+                "    SKIP\n",
+                pbfile, i, s->url[0] ? s->url : "?");
+            return -1;
+        }
+    }
+    m->nsources = nsrc;
+
+    return 0;
 }
 
 /* ── Cache: write ────────────────────────────────────────────────────── */
 static int meta_cache_write(const char *pkgname,
-                            const PkgMeta *m) {
+                            const MetaCacheEntry *e) {
     util_mkdirp(LPM_META_CACHE_DIR, 0755);
 
     char path[LPM_PATH_MAX];
@@ -341,7 +395,7 @@ static int meta_cache_write(const char *pkgname,
     FILE *f = fopen(tmp, "wb");
     if (!f) return -1;
 
-    size_t written = fwrite(m, sizeof(PkgMeta), 1, f);
+    size_t written = fwrite(e, sizeof(MetaCacheEntry), 1, f);
     fflush(f);
     fclose(f);
 
@@ -354,7 +408,7 @@ static int meta_cache_write(const char *pkgname,
 /* ── Cache: read (returns 1 if valid hit, 0 if miss/stale) ──────────── */
 static int meta_cache_read(const char *pkgname,
                            const char *pbfile,
-                           PkgMeta *m) {
+                           MetaCacheEntry *e) {
     char path[LPM_PATH_MAX];
     snprintf(path, sizeof(path), "%s/%s.meta",
              LPM_META_CACHE_DIR, pkgname);
@@ -369,8 +423,8 @@ static int meta_cache_read(const char *pkgname,
     FILE *f = fopen(path, "rb");
     if (!f) return 0;
 
-    PkgMeta tmp;
-    size_t n = fread(&tmp, sizeof(PkgMeta), 1, f);
+    MetaCacheEntry tmp;
+    size_t n = fread(&tmp, sizeof(MetaCacheEntry), 1, f);
     fclose(f);
 
     if (n != 1) return 0;
@@ -380,16 +434,19 @@ static int meta_cache_read(const char *pkgname,
     /* extra mtime guard stored inside struct */
     if (tmp.pkgbuild_mtime != pb_st.st_mtime) return 0;
 
-    memcpy(m, &tmp, sizeof(PkgMeta));
+    memcpy(e, &tmp, sizeof(MetaCacheEntry));
     return 1;
 }
 
 /* ── Public API: pkgbuild_parse_fast ─────────────────────────────────── *
- * Drop-in complement to pkgbuild_parse().                               *
- * Used by dep.c for dependency resolution — no bash spawned.           *
- * pkgbuild_parse() (bash) still used for actual build execution.        *
- * Returns 0 on success, -1 on failure.                                  */
-int pkgbuild_parse_fast(const char *pbfile, PkgMeta *m) {
+ * The one LPDF parser. Fills pkg directly — no intermediate struct, no  *
+ * bash fallback: parse_pkgbuild_c() is a strict, deterministic C parser *
+ * for a spec that's fully static/declarative by design (see its own    *
+ * docstring), so a parse failure means the file is genuinely malformed,*
+ * not that it needs a second parsing strategy. Returns 0 on success,   *
+ * -1 on failure (missing pkgname/pkgver, or an invalid checksum —      *
+ * parse_pkgbuild_c() prints the reason either way).                    */
+int pkgbuild_parse_fast(const char *pbfile, Package *pkg) {
     struct stat pb_st;
     if (stat(pbfile, &pb_st) != 0) return -1;
 
@@ -403,64 +460,27 @@ int pkgbuild_parse_fast(const char *pbfile, PkgMeta *m) {
     else
         strncpy(pkgname, base, LPM_NAME_MAX - 1);
 
-    memset(m, 0, sizeof(PkgMeta));
-    m->magic   = LPM_META_MAGIC;
-    m->version = LPM_META_VERSION;
-    m->pkgbuild_mtime = pb_st.st_mtime;
+    MetaCacheEntry e;
+    memset(&e, 0, sizeof(e));
+    e.magic   = LPM_META_MAGIC;
+    e.version = LPM_META_VERSION;
+    e.pkgbuild_mtime = pb_st.st_mtime;
 
     /* 1. try cache hit first */
-    if (meta_cache_read(pkgname, pbfile, m)) {
-        return 0;  /* cache hit — zero bash processes */
+    if (meta_cache_read(pkgname, pbfile, &e)) {
+        *pkg = e.pkg;
+        return 0;
     }
 
-    /* 2. cache miss: parse with C parser */
-    if (parse_pkgbuild_c(pbfile, m) != 0) {
-        /* 3. C parser failed (complex PKGBUILD): fall back to bash */
-        if (g_verbose)
-            fprintf(stderr, C_GRAY "  [parser] C parse failed for %s,"
-                    " falling back to bash\n" C_RESET, pkgname);
+    /* 2. cache miss: parse */
+    if (parse_pkgbuild_c(pbfile, &e.pkg) != 0)
+        return -1;
 
-        Pkg tmp_pkg;
-        memset(&tmp_pkg, 0, sizeof(tmp_pkg));
-
-        /* use original bash-based parser as fallback */
-        extern int pkgbuild_parse(const char *pbfile, Pkg *pkg);
-        if (pkgbuild_parse(pbfile, &tmp_pkg) != 0) return -1;
-
-        /* copy bash results into PkgMeta */
-        strncpy(m->pkgname,  tmp_pkg.pkgname, LPM_NAME_MAX-1);
-        strncpy(m->pkgver,   tmp_pkg.pkgver,  LPM_VER_MAX-1);
-        strncpy(m->pkgrel,   tmp_pkg.pkgrel,  15);
-        m->ndepends    = (uint8_t)tmp_pkg.ndepends;
-        m->nrecommends = (uint8_t)tmp_pkg.nrecommends;
-        m->nmakedepends= (uint8_t)tmp_pkg.nmakedepends;
-        m->nconflicts  = (uint8_t)tmp_pkg.nconflicts;
-        m->nreplaces   = (uint8_t)tmp_pkg.nreplaces;
-        m->nsources    = (uint8_t)tmp_pkg.nsources;
-        m->nchecksums  = (uint8_t)tmp_pkg.nchecksums;
-        m->nbackup     = (uint8_t)tmp_pkg.nbackup;
-        m->has_check   = tmp_pkg.has_check;
-        for (int i = 0; i < tmp_pkg.ndepends; i++)
-            strncpy(m->depends[i], tmp_pkg.depends[i], LPM_NAME_MAX-1);
-        for (int i = 0; i < tmp_pkg.nrecommends; i++)
-            strncpy(m->recommends[i], tmp_pkg.recommends[i], LPM_NAME_MAX-1);
-        for (int i = 0; i < tmp_pkg.nmakedepends; i++)
-            strncpy(m->makedepends[i], tmp_pkg.makedepends[i], LPM_NAME_MAX-1);
-        for (int i = 0; i < tmp_pkg.nconflicts; i++)
-            strncpy(m->conflicts[i], tmp_pkg.conflicts[i], LPM_NAME_MAX-1);
-        for (int i = 0; i < tmp_pkg.nreplaces; i++)
-            strncpy(m->replaces[i], tmp_pkg.replaces[i], LPM_NAME_MAX-1);
-        for (int i = 0; i < tmp_pkg.nsources; i++)
-            strncpy(m->source[i], tmp_pkg.source[i], LPM_PATH_MAX-1);
-        for (int i = 0; i < tmp_pkg.nchecksums; i++)
-            strncpy(m->checksums[i], tmp_pkg.checksums[i], 199);
-        for (int i = 0; i < tmp_pkg.nbackup; i++)
-            strncpy(m->backup[i], tmp_pkg.backup[i], LPM_PATH_MAX-1);
-    }
-
-    /* 4. write cache for next time */
-    meta_cache_write(pkgname, m);
+    /* 3. write cache for next time */
+    meta_cache_write(pkgname, &e);
     DBG(2, "disk cache written: %s", pkgname);
+
+    *pkg = e.pkg;
     return 0;
 }
 

@@ -43,7 +43,7 @@ static int     build_order[MAX_QUEUE];
 static int     nbuild = 0;
 static int     visited[MAX_QUEUE];
 static int     in_stack[MAX_QUEUE];
-static Pkg     pkg_cache[MAX_QUEUE];
+static Package  pkg_cache[MAX_QUEUE];
 static int     pkg_cached[MAX_QUEUE];
 
 static int already_seen(const char *name) {
@@ -58,7 +58,7 @@ static int index_of(const char *name) {
     return -1;
 }
 
-static int parse_cached(const char *pkgname, Pkg *out) {
+static int parse_cached(const char *pkgname, Package *out) {
     int idx = index_of(pkgname);
     if (idx >= 0 && pkg_cached[idx]) {
         *out = pkg_cache[idx];
@@ -66,7 +66,7 @@ static int parse_cached(const char *pkgname, Pkg *out) {
     }
     char pbfile[MAX_STR];
     snprintf(pbfile, sizeof(pbfile), "%s/pkgbuild_%s", LPM_PKGBUILD_DIR, pkgname);
-    if (pkgbuild_parse(pbfile, out) != 0) return -1;
+    if (pkgbuild_parse_fast(pbfile, out) != 0) return -1;
     if (idx >= 0) {
         pkg_cache[idx] = *out;
         pkg_cached[idx] = 1;
@@ -222,22 +222,14 @@ static void collect(const char *pkgname, int depth) {
     node.has_src = (stat(pbfile, &st) == 0);
 
     if (node.has_src) {
-        /* check pkgtype via fast C parser — bash parser misses it */
-        PkgMeta fm; memset(&fm, 0, sizeof(fm));
-        if (pkgbuild_parse_fast(pbfile, &fm) == 0)
-            node.is_binary = fm.is_binary;
-
-        Pkg pkg;
+        Package pkg;
         if (parse_cached(pkgname, &pkg) != 0) {
             strncpy(node.ver, "?", MAX_STR - 1);
             resolved[nresolved++] = node;
             return;
         }
-        /* prefer fast parser version (handles "key = value" format) */
-        if (fm.pkgver[0])
-            snprintf(node.ver, MAX_STR, "%s", fm.pkgver);
-        else
-            snprintf(node.ver, MAX_STR, "%s", pkg.pkgver);
+        node.is_binary = (pkg.type == PKG_TYPE_BINARY);
+        snprintf(node.ver, MAX_STR, "%s", pkg.version);
         resolved[nresolved++] = node;
         for (int i = 0; i < pkg.ndepends; i++) {
             DepSpec dep;
@@ -298,7 +290,7 @@ static void topo_visit(int idx) {
         char pbfile[MAX_STR];
         snprintf(pbfile, sizeof(pbfile), "%s/pkgbuild_%s",
                  LPM_PKGBUILD_DIR, resolved[idx].name);
-        Pkg pkg;
+        Package pkg;
         if (parse_cached(resolved[idx].name, &pkg) == 0) {
             for (int d = 0; d < pkg.ndepends; d++) {
                 DepSpec dep;
@@ -503,13 +495,21 @@ int dep_resolve_queue_multi(char **pkgnames, int npkgs,
 }
 
 /* ── dep_meta_cache_invalidate ───────────────────────────────────────────── */
-/* Invalidate in-process PkgMeta cache (call after lpm update) */
+/* Invalidate in-process parse cache (call after lpm update) */
 void dep_meta_cache_invalidate(void) {
     memset(pkg_cached, 0, sizeof(pkg_cached));
 }
 
 /* ── dep_get_recommends ──────────────────────────────────────────────────── */
 int dep_get_recommends(const char *pkgname, char out[][MAX_STR], int maxout) {
-    (void)pkgname; (void)out; (void)maxout;
-    return 0;
+    Package pkg;
+    char pbfile[MAX_STR];
+    snprintf(pbfile, sizeof(pbfile), "%s/pkgbuild_%s", LPM_PKGBUILD_DIR, pkgname);
+    if (pkgbuild_parse_fast(pbfile, &pkg) != 0) return 0;
+
+    int n = pkg.nrecommends;
+    if (n > maxout) n = maxout;
+    for (int i = 0; i < n; i++)
+        strncpy(out[i], pkg.recommends[i], MAX_STR - 1);
+    return n;
 }

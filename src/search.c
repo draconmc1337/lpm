@@ -1,75 +1,24 @@
 
 /* ── cmd_group_expand ────────────────────────────────────────────────── *
- * Expand a group name to all member package names.                      *
- * Scans repo.db files first (fast), then falls back to PKGBUILD scan.  *
- * Returns number of packages found; fills out[] with package names.    *
- * Called by cmd_sync before building queue when target looks like group.*/
+ * Expand a group name to all member package names, by scanning local    *
+ * PKGBUILDs via pkgbuild_parse_fast() (the one LPDF parser) and matching *
+ * against Package.groups[].                                              *
+ *                                                                          *
+ * This used to also try a repo.db "groups=" scan first as a fast path —  *
+ * deleted: repo.db (see parse_repo_db(), sync.c / gen-repo-db.sh) has     *
+ * never carried a groups field, so that path always fell through to      *
+ * this one anyway. Group membership only exists in the LPDF file.        *
+ *                                                                          *
+ * Returns number of packages found; fills out[] with package names.      *
+ * Called by cmd_sync before building queue when target looks like group. */
 #include "lpm.h"
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-truncation"
 
 int cmd_group_expand(const char *group_name,
                      char out[][LPM_NAME_MAX], int max_out) {
     int found = 0;
 
-    /* ── Phase 1: scan persisted repo.db files ─────────────────────── */
-    static const char *dbs[] = {
-        "/var/lib/lpm/db/base.db",
-        "/var/lib/lpm/db/extra.db",
-        "/var/lib/lpm/db/lotus.db",
-        NULL
-    };
-    for (int ri = 0; dbs[ri] && found < max_out; ri++) {
-        FILE *f = fopen(dbs[ri], "r");
-        if (!f) continue;
-        char line[1024];
-        while (fgets(line, sizeof(line), f) && found < max_out) {
-            line[strcspn(line, "\n")] = (char)0;
-            /* check if "groups=..." token contains group_name */
-            char *gp = strstr(line, "groups=");
-            if (!gp) continue;
-            gp += 7; /* skip "groups=" */
-            /* groups value is comma/space-separated, URL-encoded */
-            /* decode and check */
-            char groups_raw[512] = "";
-            char *end = gp;
-            while (*end && *end != ' ') end++;
-            size_t glen = (size_t)(end - gp);
-            if (glen >= sizeof(groups_raw)) glen = sizeof(groups_raw)-1;
-            memcpy(groups_raw, gp, glen);
-            groups_raw[glen] = (char)0;
-
-            /* check if group_name appears (as %20-decoded token) */
-            /* encode group_name for comparison */
-            char enc[LPM_NAME_MAX*3];
-            const char *s = group_name; char *d = enc;
-            while (*s) {
-                if (*s == ' ') { *d++='%'; *d++='2'; *d++='0'; }
-                else *d++ = *s;
-                s++;
-            }
-            *d = (char)0;
-
-            if (!strstr(groups_raw, enc) && !strstr(groups_raw, group_name))
-                continue;
-
-            /* extract pkgname from first token before '=' */
-            char *eq = strchr(line, '=');
-            if (!eq) continue;
-            char pkgname[LPM_NAME_MAX] = "";
-            size_t nlen = (size_t)(eq - line);
-            if (nlen >= LPM_NAME_MAX) nlen = LPM_NAME_MAX-1;
-            memcpy(pkgname, line, nlen);
-            pkgname[nlen] = (char)0;
-            if (pkgname[0])
-                { size_t _sl = strlen(pkgname);
-                  if (_sl >= LPM_NAME_MAX) _sl = LPM_NAME_MAX-1;
-                  memcpy(out[found], pkgname, _sl);
-                  out[found++][_sl] = (char)0; }
-        }
-        fclose(f);
-    }
-    if (found > 0) return found;
-
-    /* ── Phase 2: fallback — scan local PKGBUILDs ──────────────────── */
     DIR *d = opendir(LPM_PKGBUILD_DIR);
     if (!d) return 0;
     struct dirent *ent;
@@ -78,14 +27,14 @@ int cmd_group_expand(const char *group_name,
         char pbfile[LPM_PATH_MAX];
         snprintf(pbfile, sizeof(pbfile), "%s/%s",
                  LPM_PKGBUILD_DIR, ent->d_name);
-        PkgMeta fm; memset(&fm, 0, sizeof(fm));
+        Package fm; memset(&fm, 0, sizeof(fm));
         if (pkgbuild_parse_fast(pbfile, &fm) != 0) continue;
         for (int gi = 0; gi < fm.ngroups; gi++) {
             if (!strcmp(fm.groups[gi], group_name)) {
-                if (fm.pkgname[0])
-                    { size_t _sl = strlen(fm.pkgname);
+                if (fm.name[0])
+                    { size_t _sl = strlen(fm.name);
                       if (_sl >= LPM_NAME_MAX) _sl = LPM_NAME_MAX-1;
-                      memcpy(out[found], fm.pkgname, _sl);
+                      memcpy(out[found], fm.name, _sl);
                       out[found++][_sl] = (char)0; }
                 break;
             }
@@ -107,22 +56,22 @@ static void to_lower(char *s) {
 /* Try to match and print one PKGBUILD file.
  * Returns 1 if a match was found, 0 otherwise. */
 static int search_one(const char *pbfile, const char *query_lower) {
-    Pkg pkg;
-    if (pkgbuild_parse(pbfile, &pkg) != 0) return 0;
-    if (!pkg.pkgname[0]) return 0;
+    Package pkg;
+    if (pkgbuild_parse_fast(pbfile, &pkg) != 0) return 0;
+    if (!pkg.name[0]) return 0;
 
     char name_lower[LPM_NAME_MAX];
-    snprintf(name_lower, sizeof(name_lower), "%s", pkg.pkgname);
+    snprintf(name_lower, sizeof(name_lower), "%s", pkg.name);
     to_lower(name_lower);
 
     if (!strstr(name_lower, query_lower)) return 0;
 
-    const char *inst = db_is_installed(pkg.pkgname)
+    const char *inst = db_is_installed(pkg.name)
         ? " " C_GREEN "[installed]" C_RESET : "";
     printf("  " C_BOLD "%-26s" C_RESET "  " C_CYAN "%s" C_RESET "-%s%s\n",
-           pkg.pkgname,
-           pkg.pkgver[0] ? pkg.pkgver : "?",
-           pkg.pkgrel[0] ? pkg.pkgrel : "?",
+           pkg.name,
+           pkg.version[0] ? pkg.version : "?",
+           pkg.release[0] ? pkg.release : "?",
            inst);
     return 1;
 }
@@ -151,8 +100,10 @@ void cmd_search(int argc, char **argv) {
      * PHASE 1: query persisted repo.db files (fast, no network needed)
      *   /var/lib/lpm/db/base.db  extra.db  lotus.db
      *
-     * Format per line:
-     *   pkgname=VER-REL pkgtype=binary|source dlsize=N instsize=N desc=...
+     * parse_repo_db() (sync.c) is the one repo.db parser — search.c used
+     * to hand-roll its own copy of the same "pkgname=VER-REL pkgtype=...
+     * desc=..." tokenizer inline here. Same for build.c's
+     * pkg_locate_from_db()/repo_db_get_size().
      *
      * Output mimics pacman -Ss:
      *   lotus/neofetch 7.1.0-1 [bin]
@@ -165,85 +116,32 @@ void cmd_search(int argc, char **argv) {
         snprintf(dbpath, sizeof(dbpath),
                  "/var/lib/lpm/db/%s.db", DB_REPOS[ri]);
 
-        FILE *f = fopen(dbpath, "r");
-        if (!f) continue;
+        static RepoEntry entries[4096];
+        int n = parse_repo_db(dbpath, DB_REPOS[ri], entries, 4096);
 
-        char line[1024];
-        while (fgets(line, sizeof(line), f)) {
-            char *nl = strchr(line, '\n'); if (nl) *nl = '\0';
-            char *p = line;
-            while (*p && (*p == ' ' || *p == '\t')) p++;
-            if (!*p || *p == '#') continue;
-
-            /* parse first token: pkgname=VER-REL */
-            char *eq = strchr(p, '=');
-            if (!eq) continue;
-            *eq = '\0';
-            char pkgname[LPM_NAME_MAX] = "";
-            char version[LPM_VER_MAX + 16] = "";
-            { size_t _nl = strlen(p);
-              if (_nl >= sizeof(pkgname)) _nl = sizeof(pkgname)-1;
-              memcpy(pkgname, p, _nl); pkgname[_nl] = '\0'; }
-            /* version is up to next space */
-            char *vstart = eq + 1;
-            char *vend   = vstart;
-            while (*vend && *vend != ' ' && *vend != '\t') vend++;
-            size_t vlen = (size_t)(vend - vstart);
-            if (vlen >= sizeof(version)) vlen = sizeof(version) - 1;
-            memcpy(version, vstart, vlen);
-            version[vlen] = '\0';
-
-            /* rest of fields */
-            char desc[256] = "";
-            int  is_binary = 0;
-            char *rest = vend;
-            while (*rest) {
-                while (*rest == ' ' || *rest == '\t') rest++;
-                if (!*rest) break;
-                char *feq = strchr(rest, '=');
-                if (!feq) break;
-                *feq = '\0';
-                char *key = rest;
-                char *val = feq + 1;
-                /* advance rest to next token */
-                rest = val;
-                while (*rest && *rest != ' ' && *rest != '\t') rest++;
-                if (*rest) { *rest = '\0'; rest++; }
-
-                if (!strcmp(key, "pkgtype")) {
-                    is_binary = (!strcmp(val,"binary")||!strcmp(val,"bin"));
-                } else if (!strcmp(key, "desc")) {
-                    /* decode %20 → space */
-                    char *d = desc; const char *s = val;
-                    while (*s && d < desc + sizeof(desc) - 1) {
-                        if (s[0]=='%'&&s[1]=='2'&&s[2]=='0'){*d++=' ';s+=3;}
-                        else *d++ = *s++;
-                    }
-                    *d = '\0';
-                }
-            }
+        for (int i = 0; i < n; i++) {
+            RepoEntry *e = &entries[i];
 
             /* case-insensitive match on name OR desc */
             char name_l[LPM_NAME_MAX], desc_l[256];
-            snprintf(name_l, sizeof(name_l), "%s", pkgname); to_lower(name_l);
-            snprintf(desc_l, sizeof(desc_l), "%s", desc);    to_lower(desc_l);
+            snprintf(name_l, sizeof(name_l), "%s", e->name); to_lower(name_l);
+            snprintf(desc_l, sizeof(desc_l), "%s", e->desc); to_lower(desc_l);
 
             if (!strstr(name_l, query_lower) && !strstr(desc_l, query_lower))
                 continue;
 
-            const char *inst = db_is_installed(pkgname)
+            const char *inst = db_is_installed(e->name)
                 ? " " C_GREEN "[installed]" C_RESET : "";
-            const char *type_tag = is_binary
+            const char *type_tag = e->is_binary
                 ? " [" C_BLUE "bin" C_RESET "]" : "";
 
             printf(C_BOLD "%s/" C_RESET C_CYAN "%s" C_RESET " %s%s%s\n",
-                   DB_REPOS[ri], pkgname, version, type_tag, inst);
-            if (desc[0])
-                printf("    %s\n", desc);
+                   DB_REPOS[ri], e->name, e->version, type_tag, inst);
+            if (e->desc[0])
+                printf("    %s\n", e->desc);
 
             found++;
         }
-        fclose(f);
     }
 
     if (found) goto search_done;
@@ -318,8 +216,8 @@ void cmd_info(int argc, char **argv) {
         char pbfile[MAX_STR];
         snprintf(pbfile, sizeof(pbfile), "%s/pkgbuild_%s", LPM_PKGBUILD_DIR, argv[i]);
 
-        Pkg pkg;
-        if (pkgbuild_parse(pbfile, &pkg) != 0) {
+        Package pkg;
+        if (pkgbuild_parse_fast(pbfile, &pkg) != 0) {
             fprintf(stderr, C_RED "error: " C_RESET "No PKGBUILD found for '%s'\n", argv[i]);
             continue;
         }
@@ -360,8 +258,8 @@ void cmd_info(int argc, char **argv) {
         int has_bm = (buildmeta_load(argv[i], &bm) == 0);
 
         printf(C_BOLD "  %s %s-%s" C_RESET "\n",
-               pkg.pkgname, pkg.pkgver, pkg.pkgrel);
-        printf("  %s\n\n", pkg.pkgname[0] ? "" : "");
+               pkg.name, pkg.version, pkg.release);
+        printf("  %s\n\n", pkg.name[0] ? "" : "");
         printf("  " C_BOLD "%-16s" C_RESET " %s\n", "Installed", inst_str);
         printf("  " C_BOLD "%-16s" C_RESET " %s\n", "Depends",     deps);
         printf("  " C_BOLD "%-16s" C_RESET " %s\n", "Recommends",  recs);
@@ -475,8 +373,8 @@ int db_count_orphans(void) {
         char pbfile[LPM_PATH_MAX];
         snprintf(pbfile, sizeof(pbfile), "%s/pkgbuild_%s",
                  LPM_PKGBUILD_DIR, all[i].name);
-        Pkg pkg;
-        if (pkgbuild_parse(pbfile, &pkg) != 0) continue;
+        Package pkg;
+        if (pkgbuild_parse_fast(pbfile, &pkg) != 0) continue;
 
         for (int d = 0; d < pkg.ndepends; d++) {
             for (int j = 0; j < n; j++) {
@@ -525,8 +423,8 @@ void cmd_orphans(int argc, char **argv) {
         char pbfile[LPM_PATH_MAX];
         snprintf(pbfile, sizeof(pbfile), "%s/pkgbuild_%s",
                  LPM_PKGBUILD_DIR, all[i].name);
-        Pkg pkg;
-        if (pkgbuild_parse(pbfile, &pkg) != 0) continue;
+        Package pkg;
+        if (pkgbuild_parse_fast(pbfile, &pkg) != 0) continue;
 
         for (int d = 0; d < pkg.ndepends; d++) {
             /* mark the dep as needed */
@@ -618,3 +516,4 @@ void cmd_files(int argc, char **argv) {
         db_list_files(argv[i]);
     }
 }
+#pragma GCC diagnostic pop

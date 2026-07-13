@@ -61,98 +61,139 @@ int llpm_sync_databases(llpm_handle_t *h, int force) {
   return 0;
 }
 
-/* ── llpm_repo_find_pkg ──────────────────────────────────────────────── *
- * Look up a package by name from the local PKGBUILD cache.              *
- * Tries the letter-bucket layout first (fast path), then flat layout.  *
- *                                                                        *
- * Returns 0 and fills *out on success, -1 if not found.                 */
-int llpm_repo_find_pkg(llpm_handle_t *h, const char *name, llpm_pkg_t *out) {
-    FILE *f = NULL;
-    char pbfile[512];
-    char line[1024];
-
-    if (!h || !name || !out) return -1;
-
-    /* ── candidate paths: letter-bucket first, then flat ─── */
-    char letter = name[0];
-    if (letter >= 'A' && letter <= 'Z') letter += 32;
-    if (letter < 'a' || letter > 'z')  letter = '0';
-
-    snprintf(pbfile, sizeof(pbfile),
-             LLPM_PKGBUILD_DIR "/%c/pkgbuild_%s", letter, name);
-    f = fopen(pbfile, "r");
-
-    if (!f) {
-        /* flat layout fallback */
-        snprintf(pbfile, sizeof(pbfile),
-                 LLPM_PKGBUILD_DIR "/pkgbuild_%s", name);
-        f = fopen(pbfile, "r");
-    }
-
+/* ── find_in_db ──────────────────────────────────────────────────────── *
+ * Scans one repo.db file for an exact pkgname match (want_provides=0) or *
+ * a provides= match (want_provides=1). Same on-disk format the main lpm *
+ * binary's parse_repo_db() (sync.c) reads:                              *
+ *   pkgname=VER-REL pkgtype=binary|source dlsize=N instsize=N           *
+ *   desc=... provides=name1,name2  (desc/provides optional)             *
+ *                                                                         *
+ * libllpm.so cannot link against parse_repo_db() — it lives in the lpm  *
+ * binary, not the library (see the cb_* callback comment in handle.h;   *
+ * same reason dep.c keeps its own local version-compare instead of      *
+ * linking util.c). This is that parser's one counterpart inside         *
+ * libllpm's boundary — not a second implementation of the same one.     *
+ * Returns 0 and fills *out on match, -1 on no match / I/O failure.      */
+static int find_in_db(const char *path, const char *name,
+                       int want_provides, llpm_pkg_t *out) {
+    FILE *f = fopen(path, "r");
     if (!f) return -1;
 
-    memset(out, 0, sizeof(*out));
-    strncpy(out->name, name, LLPM_NAME_MAX - 1);
-
+    char line[1024];
     while (fgets(line, sizeof(line), f)) {
-        /* strip newline */
-        char *nl = line + strlen(line) - 1;
-        while (nl >= line && (*nl == '\n' || *nl == '\r')) *nl-- = '\0';
+        char *nl = strchr(line, '\n');
+        if (nl) *nl = '\0';
+        char *p = line;
+        while (*p == ' ' || *p == '\t') p++;
+        if (!*p || *p == '#') continue;
 
-        /* pkgver= */
-        if (strncmp(line, "pkgver=", 7) == 0 && out->version[0] == '\0') {
-            { const char *_vs = line + 7;
-              size_t _vl = strlen(_vs);
-              if (_vl >= LLPM_VER_MAX) _vl = LLPM_VER_MAX - 1;
-              memcpy(out->version, _vs, _vl);
-              out->version[_vl] = '\0'; }
-            continue;
+        char *eq = strchr(p, '=');
+        if (!eq) continue;
+        *eq = '\0';
+        char *pkgname = p;
+        char *rest = eq + 1;
+
+        char version[LLPM_VER_MAX];
+        char *vend = rest;
+        while (*vend && *vend != ' ' && *vend != '\t') vend++;
+        size_t vlen = (size_t)(vend - rest);
+        if (vlen >= sizeof(version)) vlen = sizeof(version) - 1;
+        memcpy(version, rest, vlen);
+        version[vlen] = '\0';
+
+        if (!want_provides) {
+            if (strcmp(pkgname, name) != 0) continue;
+            if (copy_bounded(out->name, sizeof(out->name), pkgname) != 0 ||
+                copy_bounded(out->version, sizeof(out->version), version) != 0)
+                continue;
+            fclose(f);
+            return 0;
         }
 
-        /* depends=(...) — single-line form only */
-        if (strncmp(line, "depends=(", 9) == 0) {
-            char *p = line + 9;
-            char *end = strchr(p, ')');
-            if (end) *end = '\0';
-            /* tokenise space-separated entries (quoted or bare) */
-            while (*p && out->ndepends < LLPM_DEP_MAX) {
-                while (*p == ' ' || *p == '\t' || *p == '"' || *p == '\'') p++;
-                if (!*p || *p == ')') break;
-                char *tok = p;
-                while (*p && *p != ' ' && *p != '\t' &&
-                       *p != '"' && *p != '\'' && *p != ')') p++;
-                size_t len = (size_t)(p - tok);
-                if (len > 0 && len < LLPM_NAME_MAX) {
-                    strncpy(out->depends[out->ndepends], tok, len);
-                    out->depends[out->ndepends][len] = '\0';
-                    out->ndepends++;
-                }
-            }
-            continue;
-        }
+        /* provides lookup: walk remaining key=val tokens for provides= */
+        char *tok = vend;
+        while (*tok) {
+            while (*tok == ' ' || *tok == '\t') tok++;
+            if (!*tok) break;
+            char *feq = strchr(tok, '=');
+            if (!feq) break;
+            *feq = '\0';
+            char *key = tok, *val = feq + 1;
+            tok = val;
+            while (*tok && *tok != ' ' && *tok != '\t') tok++;
+            if (*tok) { *tok = '\0'; tok++; }
 
-        /* conflicts=(...) — same pattern */
-        if (strncmp(line, "conflicts=(", 11) == 0) {
-            char *p = line + 11;
-            char *end = strchr(p, ')');
-            if (end) *end = '\0';
-            while (*p && out->nconflicts < LLPM_DEP_MAX) {
-                while (*p == ' ' || *p == '\t' || *p == '"' || *p == '\'') p++;
-                if (!*p || *p == ')') break;
-                char *tok = p;
-                while (*p && *p != ' ' && *p != '\t' &&
-                       *p != '"' && *p != '\'' && *p != ')') p++;
-                size_t len = (size_t)(p - tok);
-                if (len > 0 && len < LLPM_NAME_MAX) {
-                    strncpy(out->conflicts[out->nconflicts], tok, len);
-                    out->conflicts[out->nconflicts][len] = '\0';
-                    out->nconflicts++;
+            if (strcmp(key, "provides") != 0) continue;
+
+            char *pv = val;
+            while (pv && *pv) {
+                char *comma = strchr(pv, ',');
+                if (comma) *comma = '\0';
+                if (!strcmp(pv, name)) {
+                    if (copy_bounded(out->name, sizeof(out->name), pkgname) == 0 &&
+                        copy_bounded(out->version, sizeof(out->version), version) == 0) {
+                        fclose(f);
+                        return 0;
+                    }
                 }
+                pv = comma ? comma + 1 : NULL;
             }
-            continue;
+        }
+    }
+    fclose(f);
+    return -1;
+}
+
+/* ── llpm_repo_find_pkg ──────────────────────────────────────────────── *
+ * Looks up a package by exact name, then by provides=, across every repo
+ * registered via llpm_register_repo() (reads the local
+ * /var/lib/lpm/db/<repo>.db cache — no network I/O, same convention the
+ * main binary uses).
+ *
+ * llpm_pkg_t.depends/conflicts come back empty: repo.db is a lightweight
+ * index (name/version/type/size/desc/provides), not the full recipe —
+ * dependency data lives in the PKGBUILD/LPDF file, which is main-binary
+ * territory (pkgbuild_parse_fast(), lpm.h). A caller needing that should
+ * go through the lpm binary, not this library call.
+ *
+ * Returns 0 and fills *out on success. On failure returns -1 and sets:
+ *   LLPM_ERR_INVAL     — h/name/out missing or name is empty
+ *   LLPM_ERR_NOT_FOUND — no repos registered, or no match by name/provides
+ */
+int llpm_repo_find_pkg(llpm_handle_t *h, const char *name, llpm_pkg_t *out) {
+    if (h == NULL || name == NULL || name[0] == '\0' || out == NULL) {
+        llpm_set_errno(h, LLPM_ERR_INVAL);
+        return -1;
+    }
+
+    memset(out, 0, sizeof(*out));
+
+    if (h->nrepos == 0) {
+        llpm_set_errno(h, LLPM_ERR_NOT_FOUND);
+        return -1;
+    }
+
+    /* pass 1: exact name match, across all registered repos */
+    for (size_t i = 0; i < h->nrepos; i++) {
+        char path[LLPM_PATH_MAX];
+        snprintf(path, sizeof(path), "/var/lib/lpm/db/%s.db", h->repos[i].name);
+        if (find_in_db(path, name, 0, out) == 0) {
+            llpm_set_errno(h, LLPM_ERR_OK);
+            return 0;
         }
     }
 
-    fclose(f);
-    return 0;
+    /* pass 2: provides match — only after every repo's real names miss,
+     * same precedence a real package always takes over a virtual one */
+    for (size_t i = 0; i < h->nrepos; i++) {
+        char path[LLPM_PATH_MAX];
+        snprintf(path, sizeof(path), "/var/lib/lpm/db/%s.db", h->repos[i].name);
+        if (find_in_db(path, name, 1, out) == 0) {
+            llpm_set_errno(h, LLPM_ERR_OK);
+            return 0;
+        }
+    }
+
+    llpm_set_errno(h, LLPM_ERR_NOT_FOUND);
+    return -1;
 }

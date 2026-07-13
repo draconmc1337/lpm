@@ -47,7 +47,7 @@ int tx_commit(Transaction *tx, const char *root) {
 
         /* run pre_install hook */
         if (pkg->has_pre_install)
-            pkg_run_hook("pre_install", pkg);
+            pkg_run_hook("pre_install", pkg, root);
 
         /* backup config files */
         safety_backup_configs(pkg, root);
@@ -74,7 +74,7 @@ int tx_commit(Transaction *tx, const char *root) {
 
         /* run post_install hook */
         if (pkg->has_post_install)
-            pkg_run_hook("post_install", pkg);
+            pkg_run_hook("post_install", pkg, root);
 
         printf("Installed %s-%s-%s [OK]\n",
                pkg->name, pkg->version, pkg->release);

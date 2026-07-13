@@ -247,8 +247,8 @@ static void verify_deps(void) {
         char pbf[LPM_PATH_MAX + LPM_NAME_MAX + 16];
         snprintf(pbf, sizeof(pbf), "%s/pkgbuild_%s", LPM_PKGBUILD_DIR, all[i].name);
 
-        Pkg pkg; memset(&pkg, 0, sizeof(pkg));
-        if (pkgbuild_parse(pbf, &pkg) != 0)
+        Package pkg; memset(&pkg, 0, sizeof(pkg));
+        if (pkgbuild_parse_fast(pbf, &pkg) != 0)
             continue;  /* no PKGBUILD cached — can't check, skip silently */
 
         for (int d = 0; d < pkg.ndepends; d++) {

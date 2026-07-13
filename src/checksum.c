@@ -6,6 +6,13 @@
 
 
 int cksum_verify(const char *path, const char *expected, CksumType type) {
+    if (type == CKSUM_INVALID) {
+        fprintf(stderr, C_RED "error:" C_RESET
+            " refusing to verify %s: invalid checksum format\n"
+            "  expected: sha512:<hex> | sha256:<hex> | md5:<hex> | SKIP\n",
+            path);
+        return -1;
+    }
     if (type == CKSUM_SKIP || !expected || !expected[0]) return 0;
 
     char cmd[LPM_PATH_MAX + 256];
@@ -38,55 +45,39 @@ int cksum_verify(const char *path, const char *expected, CksumType type) {
 #pragma GCC diagnostic pop
 
 /* ── checksum_parse_unified ─────────────────────────────────────────── *
- * Parse "algo:hexhash" or legacy bare hex (auto-detect by length).     *
+ * LPDF v1 supports exactly four checksum formats, matching SPEC.md:    *
+ *   sha512:<hex>   sha256:<hex>   md5:<hex>   SKIP                     *
+ * There is no bare-hex auto-detection and no per-algorithm fallback.   *
+ * Anything else — bare hex, an unrecognized algo prefix (incl. sha1:,  *
+ * which CksumType has never had a variant for), or empty — is a parse *
+ * error: CKSUM_INVALID. Callers must reject the package outright, the  *
+ * same way they'd handle any other malformed LPDF field — never treat *
+ * CKSUM_INVALID as CKSUM_SKIP.                                         *
  *                                                                        *
- * Input:  "sha512:aabb..."  "sha256:aabb..."  "md5:aabb..."             *
- *         "SKIP"            bare hex (64 → sha256, 128 → sha512, etc.) *
- *                                                                        *
- * Output: fills *hash_out (just the hex part), returns CksumType.      *
- * Returns CKSUM_SKIP for "SKIP" or empty, CKSUM_AUTO on parse error.   */
+ * Output: fills *hash_out (just the hex part) for the three real algo  *
+ * cases; returns the matching CksumType, CKSUM_SKIP for "SKIP", or     *
+ * CKSUM_INVALID for anything that doesn't match the four forms above.  */
 CksumType checksum_parse_unified(const char *spec,
                                   char *hash_out, size_t hash_outsz) {
-    if (!spec || !spec[0] || !strcmp(spec, "SKIP")) {
-        if (hash_out) hash_out[0] = (char)0;
-        return CKSUM_SKIP;
-    }
+    if (hash_out) hash_out[0] = '\0';
 
-    /* "algo:hex" format */
+    if (!spec || !spec[0]) return CKSUM_INVALID;
+    if (!strcmp(spec, "SKIP")) return CKSUM_SKIP;
+
     const char *colon = strchr(spec, ':');
-    if (colon) {
-        const char *algo = spec;
-        size_t alen = (size_t)(colon - algo);
-        const char *hex  = colon + 1;
+    if (!colon) return CKSUM_INVALID; /* bare hex — no longer guessed */
 
-        if (hash_out)
-            strncpy(hash_out, hex, hash_outsz - 1);
+    const char *algo = spec;
+    size_t alen = (size_t)(colon - algo);
+    const char *hex  = colon + 1;
 
-        if      (alen == 6 && !strncmp(algo, "sha512", 6)) return CKSUM_SHA512;
-        else if (alen == 6 && !strncmp(algo, "sha256", 6)) return CKSUM_SHA256;
-        else if (alen == 3 && !strncmp(algo, "md5",    3)) return CKSUM_MD5;
-        /* unrecognized algo (incl. "sha1:", never a valid LPDF prefix —
-         * CksumType has no SHA1 variant) falls through to CKSUM_SKIP.
-         * Previously this mislabeled sha1: hashes as CKSUM_SHA256, which
-         * would silently fail verification against the real sha256 of the
-         * file instead of rejecting the recipe outright. */
-        return CKSUM_SKIP;
-    }
-
-    /* legacy bare hex — auto-detect by length */
-    size_t n = strlen(spec);
-    int all_hex = 1;
-    for (size_t k = 0; k < n && all_hex; k++) {
-        char c = spec[k];
-        all_hex = (c>='0'&&c<='9')||(c>='a'&&c<='f')||(c>='A'&&c<='F');
-    }
-    if (!all_hex) return CKSUM_SKIP;
+    CksumType t;
+    if      (alen == 6 && !strncmp(algo, "sha512", 6)) t = CKSUM_SHA512;
+    else if (alen == 6 && !strncmp(algo, "sha256", 6)) t = CKSUM_SHA256;
+    else if (alen == 3 && !strncmp(algo, "md5",    3)) t = CKSUM_MD5;
+    else return CKSUM_INVALID; /* e.g. "sha1:..." — not a valid LPDF prefix */
 
     if (hash_out)
-        strncpy(hash_out, spec, hash_outsz - 1);
-
-    if      (n == 128) return CKSUM_SHA512;
-    else if (n == 64)  return CKSUM_SHA256;
-    else if (n == 32)  return CKSUM_MD5;
-    return CKSUM_SKIP;
+        strncpy(hash_out, hex, hash_outsz - 1);
+    return t;
 }

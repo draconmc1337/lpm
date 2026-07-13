@@ -167,35 +167,35 @@ static int lpkg_write_meta(const char *outdir, const LpkgMeta *m) {
  * verify that pkgdir is correct — the caller (cmd_pack, or cmd_build right
  * after do_build_install()) is responsible for that.
  * Returns 0 on success, -1 on failure (message already printed).         */
-static int lpkg_pack_one(Pkg *pkg, const char *pbfile, const char *pkgdir,
+static int lpkg_pack_one(Package *pkg, const char *pbfile, const char *pkgdir,
                           int have_bsdtar) {
     /* ── build output path ───────────────────────────────────────── */
     char outpath[LPM_PATH_MAX];
-    lpkg_cache_path(pkg->pkgname, pkg->pkgver, pkg->pkgrel,
+    lpkg_cache_path(pkg->name, pkg->version, pkg->release,
                     outpath, sizeof(outpath));
 
     printf(C_CYAN "::" C_RESET " Packing " C_BOLD "%s-%s-%s" C_RESET
            " → " C_CYAN "%s" C_RESET "\n",
-           pkg->pkgname, pkg->pkgver, pkg->pkgrel, outpath);
+           pkg->name, pkg->version, pkg->release, outpath);
 
     /* ── create staging area ─────────────────────────────────────── */
     char stagedir[MAX_STR];
     snprintf(stagedir, sizeof(stagedir),
-             "/tmp/lpm_lpkg_stage_%s_%d", pkg->pkgname, (int)getpid());
+             "/tmp/lpm_lpkg_stage_%s_%d", pkg->name, (int)getpid());
     util_rmrf(stagedir);
     util_mkdirp(stagedir, 0755);
 
     /* ── write meta ──────────────────────────────────────────────── */
     LpkgMeta m;
     memset(&m, 0, sizeof(m));
-    snprintf(m.name,    sizeof(m.name),    "%s", pkg->pkgname);
-    snprintf(m.ver,     sizeof(m.ver),     "%s", pkg->pkgver);
-    snprintf(m.rel,     sizeof(m.rel),     "%s", pkg->pkgrel);
+    snprintf(m.name,    sizeof(m.name),    "%s", pkg->name);
+    snprintf(m.ver,     sizeof(m.ver),     "%s", pkg->version);
+    snprintf(m.rel,     sizeof(m.rel),     "%s", pkg->release);
     snprintf(m.arch,    sizeof(m.arch),    "%s", LPKG_ARCH);
     snprintf(m.license, sizeof(m.license), "unknown");
 
-    /* try to get description from PkgMeta cache */
-    PkgMeta pm; memset(&pm, 0, sizeof(pm));
+    /* try to get description from the parse cache */
+    Package pm; memset(&pm, 0, sizeof(pm));
     if (pkgbuild_parse_fast(pbfile, &pm) == 0 && pm.description[0])
         snprintf(m.desc, sizeof(m.desc), "%s", pm.description);
 
@@ -205,7 +205,7 @@ static int lpkg_pack_one(Pkg *pkg, const char *pbfile, const char *pkgdir,
 
     if (lpkg_write_meta(stagedir, &m) != 0) {
         fprintf(stderr, C_RED "error:" C_RESET
-                " cannot write meta for %s\n", pkg->pkgname);
+                " cannot write meta for %s\n", pkg->name);
         util_rmrf(stagedir);
         return -1;
     }
@@ -228,7 +228,7 @@ static int lpkg_pack_one(Pkg *pkg, const char *pbfile, const char *pkgdir,
     printf(C_GRAY "  packing files..." C_RESET "\n");
     if (system(pack_cmd) != 0) {
         fprintf(stderr, C_RED "error:" C_RESET
-                " failed to pack data for %s\n", pkg->pkgname);
+                " failed to pack data for %s\n", pkg->name);
         util_rmrf(stagedir);
         return -1;
     }
@@ -284,7 +284,7 @@ static int lpkg_pack_one(Pkg *pkg, const char *pbfile, const char *pkgdir,
         printf(C_GREEN "==> Packed:" C_RESET " %s\n", outpath);
     }
 
-    lpm_log("Packed %s-%s-%s → %s", pkg->pkgname, pkg->pkgver, pkg->pkgrel,
+    lpm_log("Packed %s-%s-%s → %s", pkg->name, pkg->version, pkg->release,
             outpath);
 
     /* ── sign .lpkg ──────────────────────────────────────────────── *
@@ -311,7 +311,7 @@ static int lpkg_pack_one(Pkg *pkg, const char *pbfile, const char *pkgdir,
             unlink(outpath);
             unlink(sigpath);
             lpm_log("Sign FAILED: %s-%s-%s",
-                    pkg->pkgname, pkg->pkgver, pkg->pkgrel);
+                    pkg->name, pkg->version, pkg->release);
             return -1;
         }
         printf("  " C_GRAY "-> signed  %s.sig" C_RESET "\n",
@@ -374,27 +374,20 @@ void cmd_pack(int argc, char **argv) {
             continue;
         }
 
-        Pkg pkg;
-        if (pkgbuild_parse(pbfile, &pkg) != 0) {
+        Package pkg;
+        if (pkgbuild_parse_fast(pbfile, &pkg) != 0) {
             fprintf(stderr, C_RED "error:" C_RESET
                     " failed to parse PKGBUILD for %s\n", pkgname);
             continue;
         }
-        /* pkgbuild_parse() uses bash, which silently leaves pkg.pkgname
-         * empty on lpm's "key = value" PKGBUILD syntax (bash treats the
-         * space before '=' as a command, not an assignment) — it still
-         * returns 0 either way. Patch from the fast C parser (falls back
-         * to `pkgname` itself as a last resort) so pkgname/ver/rel are
-         * never blank here. Same fix already used in build.c.           */
-        pkg_patch_from_fast(&pkg, pkgname, pbfile);
 
         /* pkgdir is where package() staged the files: LPM_BUILD_DIR/
          * <pkgname>/pkg — see do_build_install() in build.c, which is
          * the only place this directory is actually created. (Do not
-         * append pkg.pkgname again here — that directory never exists.) */
+         * append pkg.name again here — that directory never exists.) */
         char pkgdir[MAX_STR];
         snprintf(pkgdir, sizeof(pkgdir), "%s/%s/pkg",
-                 LPM_BUILD_DIR, pkg.pkgname);
+                 LPM_BUILD_DIR, pkg.name);
 
         struct stat pkgdir_st;
         if (stat(pkgdir, &pkgdir_st) != 0) {
@@ -496,28 +489,27 @@ void cmd_build(int argc, char **argv) {
             continue;
         }
 
-        Pkg pkg;
-        if (pkgbuild_parse(pbfile, &pkg) != 0) {
+        Package pkg;
+        if (pkgbuild_parse_fast(pbfile, &pkg) != 0) {
             fprintf(stderr, C_RED "error:" C_RESET
                     " failed to parse PKGBUILD for %s\n", pkgname);
             continue;
         }
-        pkg_patch_from_fast(&pkg, pkgname, pbfile);
 
-        if (db_is_installed(pkg.pkgname))
+        if (db_is_installed(pkg.name))
             printf(C_YELLOW "::" C_RESET
                    " %s is already installed — building will not touch it\n",
-                   pkg.pkgname);
+                   pkg.name);
 
         char ws[MAX_STR];
-        snprintf(ws, sizeof(ws), "%s/%s", LPM_BUILD_DIR, pkg.pkgname);
+        snprintf(ws, sizeof(ws), "%s/%s", LPM_BUILD_DIR, pkg.name);
         util_mkdirp(ws, 0755);
 
         char srcqueue[1][MAX_STR];
-        snprintf(srcqueue[0], sizeof(srcqueue[0]), "%s", pkg.pkgname);
+        snprintf(srcqueue[0], sizeof(srcqueue[0]), "%s", pkg.name);
         if (fetch_all_sources(srcqueue, 1) != 0) {
             fprintf(stderr, C_RED "error:" C_RESET
-                    " source download failed for %s\n", pkg.pkgname);
+                    " source download failed for %s\n", pkg.name);
             continue;
         }
 
@@ -535,7 +527,7 @@ void cmd_build(int argc, char **argv) {
             /* Unreachable in practice: do_build_install() already exits(1)
              * itself when package() stages no files. Kept as a guard. */
             fprintf(stderr, C_RED "error:" C_RESET
-                    " build produced no pkgdir for %s\n", pkg.pkgname);
+                    " build produced no pkgdir for %s\n", pkg.name);
             continue;
         }
 

@@ -1,7 +1,5 @@
 # Changelog
 
-<<<<<<< HEAD
-=======
 ## [1.5.0] — 2026-07-05
 
 ### Changed — PKGBUILD source/checksum format (BREAKING)
@@ -69,7 +67,6 @@ no longer recognizes the fields removed below.
   itself — one implementation of "hash a file and compare" instead of two.
 - README's PKGBUILD example updated to the new format.
 
->>>>>>> 52b53ef (update: 2026-07-08 19:01:47)
 ## [1.4.2] — 2026-07-04
 
 ### Fixed — stale PKGBUILD caching in the build pipeline

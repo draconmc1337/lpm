@@ -1,31 +1,15 @@
-# Build
+# guards against the recursive src/src/ duplication this repo hit before
+src/src/
+
+# build output
+/lpm
 *.o
-*.lo
+*.pic.o
 *.a
 *.so
 *.so.*
-*.la
 
-# Executables
-lpm
-lpkg
-
-# Build directories
-compiled/
-build/
-dist/
-
-# Logs
-*.log
-log.txt
-
-# Editor
-*~
-*.swp
-*.swo
-.vscode/
-.idea/
-
-# OS
-.DS_Store
-Thumbs.db
+# artifacts that have been accidentally committed before (see cleanup log) —
+# keep these ignored so they can't silently reappear
+/compiled
+/log.txt

@@ -55,20 +55,9 @@
 
 static const char *REPO_NAMES[NREPOS] = { "base", "extra", "lotus" };
 
-/* ── Data structures ─────────────────────────────────────────────────── */
-
-/* One entry from a repo.db */
-typedef struct {
-    char name[LPM_NAME_MAX];
-    char version[LPM_VER_MAX + 16]; /* "ver-rel" */
-    char repo[16];                   /* "base" / "extra" / "lotus" */
-    int  is_binary;                  /* 1=binary, 0=source */
-    long dl_size;                    /* bytes; 0 = unknown */
-    long inst_size;                  /* bytes; 0 = source/unknown */
-    char desc[256];                  /* short description */
-} RepoEntry;
-
-/* One package that needs updating */
+/* RepoEntry / UpdateEntry: RepoEntry now lives in lpm.h (shared with
+ * search.c/build.c — see parse_repo_db()). UpdateEntry stays local to
+ * sync.c, nothing else needs it. */
 typedef struct {
     char name[LPM_NAME_MAX];
     char inst_ver[LPM_VER_MAX + 16];
@@ -123,11 +112,12 @@ static void *repo_fetch_thread(void *arg) {
     return NULL;
 }
 
-/* ── repo.db parser ──────────────────────────────────────────────────── *
+/* ── repo.db parser — the one implementation, see RepoEntry in lpm.h ─── *
  * Format: one package per line                                          *
- *   pkgname=VER-REL pkgtype=binary|source dlsize=N instsize=N          */
-static int parse_repo_db(const char *path, const char *reponame,
-                         RepoEntry *out, int maxn) {
+ *   pkgname=VER-REL pkgtype=binary|source dlsize=N instsize=N          *
+ *   desc=... provides=name1,name2 (both optional, forward compat)      */
+int parse_repo_db(const char *path, const char *reponame,
+                   RepoEntry *out, int maxn) {
     FILE *fp = fopen(path, "r");
     if (!fp) return 0;
 
@@ -173,6 +163,17 @@ static int parse_repo_db(const char *path, const char *reponame,
                     else *d++ = *s++;
                 }
                 *d = (char)0;
+            } else if (!strcmp(key, "provides") && val[0]) {
+                /* comma-separated list, see gen-repo-db.sh */
+                char *pv = val;
+                while (*pv && e.nprovides < LPM_MAX_DEPS) {
+                    char *comma = strchr(pv, ',');
+                    if (comma) *comma = '\0';
+                    if (*pv)
+                        strncpy(e.provides[e.nprovides++], pv, LPM_NAME_MAX - 1);
+                    if (!comma) break;
+                    pv = comma + 1;
+                }
             }
             tok = strtok(NULL, " \t\n\r");
         }
@@ -522,7 +523,7 @@ void cmd_suy(int argc, char **argv) {
         char pbf[LPM_PATH_MAX + LPM_NAME_MAX + 16];
         snprintf(pbf, sizeof(pbf), "%s/pkgbuild_%s",
                  LPM_PKGBUILD_DIR, re->name);
-        PkgMeta meta;
+        Package meta;
         memset(&meta, 0, sizeof(meta));
         if (pkgbuild_parse_fast(pbf, &meta) != 0) continue;
         for (int ri = 0; ri < meta.nreplaces; ri++) {
