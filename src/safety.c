@@ -140,17 +140,16 @@ int safety_check_file_conflicts(const char *pkgdir, const char *pkgname,
 
         if (force) {
             fprintf(stderr,
-                C_YELLOW "warning:" C_RESET
-                " %s: owned by %s — will overwrite (--force)\n",
+                "Warning: %s: owned by %s — will overwrite (--force)\n",
                 files[i], owner);
         } else {
             fprintf(stderr,
-                C_RED "error:" C_RESET
-                " file conflict: %s\n"
-                "  owned by: " C_BOLD "%s" C_RESET "\n"
-                "  installing: " C_BOLD "%s" C_RESET "\n"
-                "  Use --force to override or remove %s first.\n",
-                files[i], owner, pkgname, owner);
+                "Error:\n\n"
+                "%s already exists\n\n"
+                "Owned by:\n"
+                "%s\n\n"
+                "Cannot continue.\n",
+                files[i], owner);
             conflicts++;
         }
     }
@@ -218,9 +217,10 @@ int safety_check_conflicts(Package **pkgs, int n, const char *root) {
         for (int c = 0; c < p->nconflicts; c++) {
             if (conflict_match_installed(p->conflicts[c])) {
                 fprintf(stderr,
-                    C_RED "error:" C_RESET
-                    " %s conflicts with installed package %s\n",
-                    p->name, p->conflicts[c]);
+                    "Error:\n\n"
+                    "%s conflicts with %s\n\n"
+                    "Remove %s first.\n",
+                    p->name, p->conflicts[c], p->conflicts[c]);
                 found++;
             }
         }
@@ -231,8 +231,10 @@ int safety_check_conflicts(Package **pkgs, int n, const char *root) {
             for (int c = 0; c < q->nconflicts; c++) {
                 if (!strcmp(q->conflicts[c], p->name)) {
                     fprintf(stderr,
-                        C_RED "error:" C_RESET
-                        " %s and %s conflict\n", p->name, q->name);
+                        "Error:\n\n"
+                        "%s conflicts with %s\n\n"
+                        "Cannot continue.\n",
+                        p->name, q->name);
                     found++;
                 }
             }
@@ -241,9 +243,8 @@ int safety_check_conflicts(Package **pkgs, int n, const char *root) {
         char *inst_ver = db_get_version(p->name);
         if (inst_ver) {
             if (strcmp(inst_ver, p->version) >= 0)
-                printf(C_YELLOW "warning:" C_RESET
-                       " %s %s already installed (have %s)\n",
-                       p->name, p->version, inst_ver);
+                printf("%s-%s is already installed.\n",
+                       p->name, inst_ver);
             free(inst_ver);
         }
     }
@@ -263,10 +264,11 @@ int safety_check_space(Package **pkgs, int n, const char *root) {
                                      ? g_cfg.build_dir : LPM_BUILD_DIR);
     if (free_build >= 0 && free_build < needed_kb) {
         fprintf(stderr,
-            C_RED "error:" C_RESET
-            " not enough space in %s\n"
-            "  need:  ~%ld MB\n"
-            "  have:   %ld MB\n",
+            "Error:\n\n"
+            "not enough space in %s\n"
+            "need:  ~%ld MiB\n"
+            "have:   %ld MiB\n\n"
+            "Cannot continue.\n",
             g_cfg.build_dir, needed_kb / 1024, free_build / 1024);
         return -1;
     }
@@ -274,8 +276,7 @@ int safety_check_space(Package **pkgs, int n, const char *root) {
     long free_root = util_disk_free(root && root[0] ? root : "/");
     if (free_root >= 0 && free_root < needed_kb / 8) {
         fprintf(stderr,
-            C_YELLOW "warning:" C_RESET
-            " low disk space on %s: %ld MB free\n",
+            "Warning: low disk space on %s: %ld MiB free\n",
             root, free_root / 1024);
         /* warn only — don't abort, admin may know what they're doing */
     }

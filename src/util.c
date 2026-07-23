@@ -13,7 +13,7 @@ int g_debug    = 0;
 /* ── die / warn ──────────────────────────────────────────────────────── */
 void die(const char *fmt, ...) {
     va_list ap;
-    fprintf(stderr, C_RED "error: " C_RESET);
+    fprintf(stderr, "Error: ");
     va_start(ap, fmt); vfprintf(stderr, fmt, ap); va_end(ap);
     fprintf(stderr, "\n");
     exit(1);
@@ -21,7 +21,7 @@ void die(const char *fmt, ...) {
 
 void warn(const char *fmt, ...) {
     va_list ap;
-    fprintf(stderr, C_YELLOW "warning: " C_RESET);
+    fprintf(stderr, "Warning: ");
     va_start(ap, fmt); vfprintf(stderr, fmt, ap); va_end(ap);
     fprintf(stderr, "\n");
 }
@@ -53,13 +53,17 @@ void lpm_audit(const char *fmt, ...) {
     fclose(f);
 }
 
-/* ── confirm ─────────────────────────────────────────────────────────── */
+/* ── confirm ─────────────────────────────────────────────────────────── *
+ * [Y/n] semantics: empty Enter, y, or Y = yes; n or N = no; EOF = no.   */
 int confirm(const char *prompt) {
     printf("%s", prompt);
     fflush(stdout);
     char buf[8];
     if (!fgets(buf, sizeof(buf), stdin)) return 0;
-    return (buf[0] == 'y' || buf[0] == 'Y');
+    if (buf[0] == '\n' || buf[0] == '\0') return 1;
+    if (buf[0] == 'y' || buf[0] == 'Y') return 1;
+    if (buf[0] == 'n' || buf[0] == 'N') return 0;
+    return 1;
 }
 
 int confirm_word(const char *prompt, const char *word) {

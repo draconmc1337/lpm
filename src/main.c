@@ -1,4 +1,5 @@
 #include "lpm.h"
+#include "llpm/llpm.h"
 #include <signal.h>
 
 static volatile sig_atomic_t g_interrupted = 0;
@@ -19,6 +20,7 @@ static void usage(void) {
         "package management:\n"
         "  install  <pkg(s)>    install packages\n"
         "  remove   <pkg(s)>    remove packages\n"
+        "                       (-Rs/--recursive: also unused deps)\n"
         "  upgrade  [pkg(s)]    upgrade packages (all if none given)\n"
         "  update               sync package databases\n"
         "  search   <term>      search available packages\n"
@@ -50,6 +52,7 @@ static void usage(void) {
         "  --no-check           skip check() phase\n"
         "  --dry-run            simulate without making changes\n"
         "  --force              override conflict checks\n"
+        "  -Rs, --recursive     remove unused dependencies\n"
         "  --debug=N            debug level 1-3\n"
         "  -V, --version        show version\n"
         "  -h, --help           show this help\n"
@@ -211,7 +214,7 @@ int main(int argc, char **argv) {
         return 0;
     }
     if (!strcmp(cmd, "-V") || !strcmp(cmd, "--version") || !strcmp(cmd, "version")) {
-        printf("lpm " LPM_VERSION " — libllpm 1.1.2-beta\n");
+        printf("lpm " LPM_VERSION " — libllpm " LLPM_LIB_VERSION "\n");
         printf("Lotus Linux (musl/x86_64)\n");
         printf("Copyright (C) Lotus Linux Project\n");
         return 0;

@@ -52,8 +52,10 @@ static void apply_kv(LpmConfig *cfg, const char *key, const char *val) {
         else if (!strcmp(key,"PROFILE"))         strncpy(cfg->profile, val, sizeof(cfg->profile)-1);
         else if (!strcmp(key,"CriticalPkg"))     add_pkg_list(cfg->critical_pkgs, &cfg->n_critical, val);
         else if (!strcmp(key,"IgnorePkg"))       add_pkg_list(cfg->ignore_pkgs,   &cfg->n_ignore,   val);
-        else if (!strcmp(key,"LogDir"))          strncpy(cfg->log_dir,   val, sizeof(cfg->log_dir)-1);
-        else if (!strcmp(key,"FilesDir"))        strncpy(cfg->files_dir, val, sizeof(cfg->files_dir)-1);
+        else if (!strcmp(key,"LOGDIR") || !strcmp(key,"LogDir"))
+                                                 strncpy(cfg->log_dir,   val, sizeof(cfg->log_dir)-1);
+        else if (!strcmp(key,"FILESDIR") || !strcmp(key,"FilesDir"))
+                                                 strncpy(cfg->files_dir, val, sizeof(cfg->files_dir)-1);
 }
 
 static void strip_quotes(char *s) {
@@ -149,6 +151,10 @@ void lpm_config_dump(const LpmConfig *cfg) {
     printf("  CC/CXX    = %s / %s\n", cfg->cc, cfg->cxx);
     printf("  JOBS      = %d%s\n", cfg->jobs, cfg->jobs==0?" (auto)":"");
     printf("  BUILDDIR  = %s\n", cfg->build_dir);
+    printf("  PKGDEST   = %s\n", cfg->pkg_dest);
+    printf("  SRCDEST   = %s\n", cfg->src_dest);
+    printf("  LOGDIR    = %s\n", cfg->log_dir);
+    printf("  FILESDIR  = %s\n", cfg->files_dir);
     printf("  DOWNLOADER= %s\n", cfg->downloader);
     printf("  CriticalPkg(%d): ", cfg->n_critical);
     for (int i=0;i<cfg->n_critical;i++) printf("%s ", cfg->critical_pkgs[i]);

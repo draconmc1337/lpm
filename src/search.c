@@ -66,13 +66,11 @@ static int search_one(const char *pbfile, const char *query_lower) {
 
     if (!strstr(name_lower, query_lower)) return 0;
 
-    const char *inst = db_is_installed(pkg.name)
-        ? " " C_GREEN "[installed]" C_RESET : "";
-    printf("  " C_BOLD "%-26s" C_RESET "  " C_CYAN "%s" C_RESET "-%s%s\n",
+    printf("%s %s\n",
            pkg.name,
-           pkg.version[0] ? pkg.version : "?",
-           pkg.release[0] ? pkg.release : "?",
-           inst);
+           pkg.version[0] ? pkg.version : "?");
+    if (pkg.description[0])
+        printf("\n%s\n", pkg.description);
     return 1;
 }
 
@@ -130,15 +128,16 @@ void cmd_search(int argc, char **argv) {
             if (!strstr(name_l, query_lower) && !strstr(desc_l, query_lower))
                 continue;
 
-            const char *inst = db_is_installed(e->name)
-                ? " " C_GREEN "[installed]" C_RESET : "";
-            const char *type_tag = e->is_binary
-                ? " [" C_BLUE "bin" C_RESET "]" : "";
+            /* version field may be VER-REL — show version only */
+            char ver[LPM_VER_MAX];
+            snprintf(ver, sizeof(ver), "%s", e->version);
+            char *dash = strchr(ver, '-');
+            if (dash) *dash = '\0';
 
-            printf(C_BOLD "%s/" C_RESET C_CYAN "%s" C_RESET " %s%s%s\n",
-                   DB_REPOS[ri], e->name, e->version, type_tag, inst);
+            printf("%s %s\n", e->name, ver[0] ? ver : e->version);
             if (e->desc[0])
-                printf("    %s\n", e->desc);
+                printf("\n%s\n", e->desc);
+            printf("\n");
 
             found++;
         }
@@ -199,12 +198,8 @@ void cmd_search(int argc, char **argv) {
     }
 
 search_done:
-    if (!found) {
-        printf("No packages found matching " C_YELLOW "%s" C_RESET "\n",
-               query);
-        printf(C_GRAY "  tip: run 'lpm update' to sync package databases\n"
-               C_RESET);
-    }
+    if (!found)
+        printf("No packages found matching %s\n", query);
 }
 
 /* ── cmd_info ────────────────────────────────────────────────────────────── */
@@ -218,72 +213,75 @@ void cmd_info(int argc, char **argv) {
 
         Package pkg;
         if (pkgbuild_parse_fast(pbfile, &pkg) != 0) {
-            fprintf(stderr, C_RED "error: " C_RESET "No PKGBUILD found for '%s'\n", argv[i]);
+            fprintf(stderr,
+                    "Error:\n\n"
+                    "No PKGBUILD found for '%s'\n\n"
+                    "Cannot continue.\n", argv[i]);
             continue;
         }
 
-        /* build dep strings */
-        char deps[2048]     = "(none)";
-        char recs[2048]     = "(none)";
-        char makedeps[2048] = "(none)";
+        char deps[2048] = "";
+        char recs[2048] = "";
 
         if (pkg.ndepends > 0) {
-            deps[0] = '\0';
             for (int d = 0; d < pkg.ndepends; d++) {
                 if (d) strncat(deps, " ", sizeof(deps) - strlen(deps) - 1);
                 strncat(deps, pkg.depends[d], sizeof(deps) - strlen(deps) - 1);
             }
         }
         if (pkg.nrecommends > 0) {
-            recs[0] = '\0';
             for (int d = 0; d < pkg.nrecommends; d++) {
                 if (d) strncat(recs, " ", sizeof(recs) - strlen(recs) - 1);
                 strncat(recs, pkg.recommends[d], sizeof(recs) - strlen(recs) - 1);
             }
         }
-        if (pkg.nmakedepends > 0) {
-            makedeps[0] = '\0';
-            for (int d = 0; d < pkg.nmakedepends; d++) {
-                if (d) strncat(makedeps, " ", sizeof(makedeps) - strlen(makedeps) - 1);
-                strncat(makedeps, pkg.makedepends[d], sizeof(makedeps) - strlen(makedeps) - 1);
-            }
-        }
 
         char *rdeps_str = reverse_deps(argv[i]);
-        const char *inst_str = db_is_installed(argv[i])
-            ? C_GREEN "Yes" C_RESET : C_YELLOW "No" C_RESET;
 
-        /* ── load build metadata if available ── */
-        BuildMeta bm;
-        int has_bm = (buildmeta_load(argv[i], &bm) == 0);
-
-        printf(C_BOLD "  %s %s-%s" C_RESET "\n",
-               pkg.name, pkg.version, pkg.release);
-        printf("  %s\n\n", pkg.name[0] ? "" : "");
-        printf("  " C_BOLD "%-16s" C_RESET " %s\n", "Installed", inst_str);
-        printf("  " C_BOLD "%-16s" C_RESET " %s\n", "Depends",     deps);
-        printf("  " C_BOLD "%-16s" C_RESET " %s\n", "Recommends",  recs);
-        printf("  " C_BOLD "%-16s" C_RESET " %s\n", "MakeDepends", makedeps);
-        printf("  " C_BOLD "%-16s" C_RESET " %s\n", "Required by",
-               rdeps_str[0] ? rdeps_str : "(none)");
-        printf("  " C_BOLD "%-16s" C_RESET " %s\n", "PKGBUILD", pbfile);
-
-        if (has_bm) {
-            printf("\n");
-            printf("  " C_BOLD "Build info\n" C_RESET);
-            printf("  " C_BOLD "%-16s" C_RESET " %s\n",
-                   "Built on",    bm.built_on[0]    ? bm.built_on    : "unknown");
-            printf("  " C_BOLD "%-16s" C_RESET " %s\n",
-                   "Compiler",    bm.compiler[0]    ? bm.compiler    : "unknown");
-            printf("  " C_BOLD "%-16s" C_RESET " %s\n",
-                   "libc",        bm.libc[0]        ? bm.libc        : "musl");
-            printf("  " C_BOLD "%-16s" C_RESET " %s\n",
-                   "Build flags", bm.build_flags[0] ? bm.build_flags : "(none)");
-            printf("  " C_BOLD "%-16s" C_RESET " %s\n",
-                   "Build date",  bm.build_date[0]  ? bm.build_date  : "unknown");
-            printf("  " C_BOLD "%-16s" C_RESET " " C_GRAY "%s" C_RESET "\n",
-                   "Build hash",  bm.build_hash[0]  ? bm.build_hash  : "(not available)");
+        long dl = (long)pkg.dl_size;
+        long inst = (long)pkg.inst_size;
+        const char *repo = "";
+        static const char *DB_REPOS[] = { "base", "extra", "lotus", NULL };
+        for (int ri = 0; DB_REPOS[ri]; ri++) {
+            char dbpath[LPM_PATH_MAX];
+            snprintf(dbpath, sizeof(dbpath),
+                     "/var/lib/lpm/db/%s.db", DB_REPOS[ri]);
+            static RepoEntry entries[4096];
+            int n = parse_repo_db(dbpath, DB_REPOS[ri], entries, 4096);
+            for (int ei = 0; ei < n; ei++) {
+                if (!strcmp(entries[ei].name, pkg.name)) {
+                    repo = DB_REPOS[ri];
+                    if (entries[ei].dl_size > 0)   dl   = entries[ei].dl_size;
+                    if (entries[ei].inst_size > 0) inst = entries[ei].inst_size;
+                    break;
+                }
+            }
+            if (repo[0]) break;
         }
+
+        char sdl[32] = "", sinst[32] = "";
+        if (dl > 0)   format_size(dl, sdl, sizeof(sdl));
+        if (inst > 0) format_size(inst, sinst, sizeof(sinst));
+
+        printf("%-16s%s\n", "Name", pkg.name);
+        printf("%-16s%s\n", "Version", pkg.version[0] ? pkg.version : "?");
+        if (repo[0])
+            printf("%-16s%s\n", "Repository", repo);
+        printf("%-16s%s\n", "Architecture", "x86_64");
+        if (sinst[0])
+            printf("%-16s%s\n", "Installed size", sinst);
+        if (sdl[0])
+            printf("%-16s%s\n", "Download size", sdl);
+        if (pkg.license[0])
+            printf("%-16s%s\n", "License", pkg.license);
+        if (deps[0])
+            printf("%-16s%s\n", "Dependencies", deps);
+        if (recs[0])
+            printf("%-16s%s\n", "Optional", recs);
+        printf("%-16s%s\n", "Required by",
+               rdeps_str[0] ? rdeps_str : "");
+        if (pkg.description[0])
+            printf("%-16s%s\n", "Description", pkg.description);
         printf("\n");
     }
 }
@@ -304,7 +302,7 @@ void cmd_list(int argc, char **argv) {
     FILE *f = fopen(LPM_DB, "r");
     if (!f) {
         if (count_only) printf("0\n");
-        else            printf("No packages installed via lpm.\n");
+        else            printf("There is nothing to do.\n");
         return;
     }
 
@@ -324,30 +322,35 @@ void cmd_list(int argc, char **argv) {
         return;
     }
 
-    if (n == 0) { printf("No packages installed via lpm.\n"); return; }
+    if (n == 0) { printf("There is nothing to do.\n"); return; }
 
     /* sort A-Z by pkgname */
     char *ptrs[512];
     for (int i = 0; i < n; i++) ptrs[i] = lines[i];
     qsort(ptrs, n, sizeof(char *), cmp_str);
 
-    printf("\n  " C_BOLD "%-26s  %s" C_RESET "\n", "packages", "version");
-    printf("  ───────────────────────────────────────\n");
+    int name_w = 8;
+    for (int i = 0; i < n; i++) {
+        char *eq = strchr(ptrs[i], '=');
+        int len = eq ? (int)(eq - ptrs[i]) : (int)strlen(ptrs[i]);
+        if (len > name_w) name_w = len;
+    }
+
     for (int i = 0; i < n; i++) {
         char name[MAX_STR], ver[MAX_STR];
         char *eq = strchr(ptrs[i], '=');
         if (eq) {
-            strncpy(name, ptrs[i], eq - ptrs[i]);
-            name[eq - ptrs[i]] = '\0';
-            strncpy(ver, eq + 1, MAX_STR - 1);
+            size_t nl = (size_t)(eq - ptrs[i]);
+            if (nl >= sizeof(name)) nl = sizeof(name) - 1;
+            memcpy(name, ptrs[i], nl);
+            name[nl] = '\0';
+            snprintf(ver, sizeof(ver), "%s", eq + 1);
         } else {
-            strncpy(name, ptrs[i], MAX_STR - 1);
-            strncpy(ver,  "-",     MAX_STR - 1);
+            snprintf(name, sizeof(name), "%s", ptrs[i]);
+            snprintf(ver, sizeof(ver), "-");
         }
-        printf("  " C_BOLD "%-26s" C_RESET "  " C_CYAN "%s" C_RESET "\n", name, ver);
+        printf("%-*s  %s\n", name_w, name, ver);
     }
-    printf("  ───────────────────────────────────────\n");
-    printf("  Total: " C_CYAN "%d" C_RESET " package(s)\n\n", n);
 }
 /* ═══════════════════════════════════════════════════════════════════════
  * #22  ORPHAN DETECTION  (lpm -Qo)
@@ -447,30 +450,21 @@ void cmd_orphans(int argc, char **argv) {
 
     /* orphans = installed as DEP + not needed by anyone */
     int norphans = 0;
-    printf("\n");
     for (int i = 0; i < n; i++) {
-        /* only flag packages installed as dependency, not explicit */
         if (all[i].reason != REASON_DEP) continue;
         if (needed[i]) continue;
 
         if (norphans == 0)
-            printf("  " C_BOLD "%-26s  %s" C_RESET "\n"
-                   "  ───────────────────────────────────────\n",
-                   "orphan packages", "version");
+            printf("Unused dependencies:\n\n");
 
-        printf("  " C_BOLD "%-26s" C_RESET "  " C_YELLOW "%s-%s" C_RESET "\n",
-               all[i].name, all[i].version, all[i].release);
+        printf("%s\n", all[i].name);
         norphans++;
     }
 
-    if (norphans == 0) {
-        printf(C_GREEN "  No orphaned packages found." C_RESET "\n\n");
-    } else {
-        printf("  ───────────────────────────────────────\n");
-        printf("  " C_YELLOW "%d" C_RESET " orphan(s) found."
-               " Remove with: " C_BOLD "lpm remove <pkg>" C_RESET "\n\n",
-               norphans);
-    }
+    if (norphans == 0)
+        printf("There is nothing to do.\n");
+    else
+        printf("\n%d unused\n", norphans);
 
     free(needed);
     free(all);

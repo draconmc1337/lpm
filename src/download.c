@@ -211,7 +211,7 @@ int dl_fetch_all(FetchJob *jobs, int njobs) {
     g_nslots = njobs < MAX_SLOTS ? njobs : MAX_SLOTS;
     memset(g_slots, 0, sizeof(g_slots));
 
-    printf(":: Downloading sources...\n");
+    printf("Downloading...\n");
 
     for (int i = 0; i < g_nslots; i++) {
         /* label = basename of URL stripped of extension clutter */
@@ -297,7 +297,7 @@ int dl_fetch_all(FetchJob *jobs, int njobs) {
         if (jobs[i].result != 0) failed++;
 
     if (failed > 0) {
-        fprintf(stderr, "error: %d source(s) failed to download or verify\n", failed);
+        fprintf(stderr, "Error: %d source(s) failed to download or verify\n", failed);
         return -1;
     }
     return 0;

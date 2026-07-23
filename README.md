@@ -19,40 +19,35 @@
   <img src="https://img.shields.io/badge/C-0b0e1b?style=for-the-badge&logo=c&logoColor=c2c2c6">
   <img src="https://img.shields.io/badge/Lotus_Linux-30575F?style=for-the-badge">
   <img src="https://img.shields.io/badge/license-GPL--3.0-5a5e6f?style=for-the-badge">
-  <img src="https://img.shields.io/badge/1.1.5--alpha-A56039?style=for-the-badge">
+  <img src="https://img.shields.io/badge/2.0.0-A56039?style=for-the-badge">
 </p>
 
-> **⚠ Alpha software.** LPM is under active development for Lotus Linux. Expect rough edges — but it already builds GCC 15.2.0 from scratch, so it's not *that* rough.
-
-A source-based package manager for [Lotus Linux](https://draconmc1337.github.io), written in C.  
-PKGBUILDs are plain bash scripts. No sandbox, no namespace magic, no fakechroot.  
+A source-based package manager for [Lotus Linux](https://draconmc1337.github.io), written in C.
+PKGBUILDs are plain bash scripts. No sandbox, no namespace magic, no fakechroot.
 You write the build script, LPM runs it — and owns the filesystem so nothing can sneak a `rm -rf /` past you.
 
 ---
 
 ## Why LPM?
 
-Most package managers either trust the script too much (old LPM, AUR helpers) or wrap everything in so many layers you forget what's actually happening (Portage, I'm looking at you).
+Most package managers either trust the script too much (AUR helpers) or wrap everything in so many layers you forget what's actually happening.
 
 LPM lands somewhere in the middle:
 - **PKGBUILD does the building** — configure, make, DESTDIR install. That's it.
-- **LPM owns the filesystem** — after `package()` runs into `$pkgdir`, LPM scans, records, and merges. Uninstall is just reading the list back and calling `unlink()`. No script runs.
-- **Config drives protection** — `/etc/lpm/lpm.conf` decides what's critical. htop gets a simple `[Yes/No]`. glibc gets three confirmation prompts and has to type `DELETE`.
+- **LPM owns the filesystem** — after `package()` runs into `$pkgdir`, LPM scans, records, and merges. Uninstall reads the file list and unlinks. No script runs.
+- **Config drives protection** — `/etc/lpm/lpm.conf` lists critical packages. Removing them requires `--force`.
 
 ---
 
 ## Features
 
-- **PKGBUILD-based** — same format as Arch, familiar and simple
+- **PKGBUILD-based** — familiar Arch-style recipes
 - **File ownership database** — every installed file tracked at `/var/lib/lpm/files/<pkg>/files.list`
-- **Tiered removal protection** — NORMAL / IMPORTANT / CRITICAL, driven by `/etc/lpm/lpm.conf`
+- **Critical package protection** — `CriticalPkg` entries require `--force` to remove
 - **Dependency resolution** — toposorted build queue with cycle detection
-- **Per-package build logs** — `/var/log/lpm/<pkgname>.log`, overwritten each run. No 50k-line pile-up.
-- **Fetch retry system** — 3 attempts with 1s delay, DNS failure detection, detailed error classification
-- **`--yes` / `--strict` / `--bootstrap`** — automation-friendly flags for scripting, CI, and LFS builds
-- **`IgnorePkg`** — skip packages during `lpm -u`, same as pacman
-- **`MAKEFLAGS`** — configurable via `lpm.conf`, defaults to `ceil(nproc/2)`
-- **`lpm-dev`** — separate binary for developer workflow, `-bi` only, no repo fetch
+- **Per-package build logs** — `/var/log/lpm/<pkgname>.log`
+- **`IgnorePkg`** — skip packages during system upgrades
+- **Configurable build environment** — `CFLAGS`, `JOBS`, `MAKEFLAGS`, and related options in `lpm.conf`
 
 ---
 
@@ -62,9 +57,7 @@ LPM lands somewhere in the middle:
 git clone https://github.com/draconmc1337/lpm
 cd lpm
 make
-doas make install        # installs lpm to /usr/bin/lpm
-make dev                 # build lpm-dev
-doas make dev-install    # installs lpm-dev to /usr/bin/lpm-dev
+doas make install
 ```
 
 ---
@@ -72,45 +65,34 @@ doas make dev-install    # installs lpm-dev to /usr/bin/lpm-dev
 ## Commands
 
 ```sh
-lpm install   <pkg...>   # fetch PKGBUILD from repo + build + install
-lpm -bi  <pkg...>   # build + install from local PKGBUILD (offline)
-lpm update  <pkg...>   # fetch PKGBUILD only, don't build
-lpm -r   <pkg...>   # remove package(s)
-lpm -u   [pkg...]   # update — all installed if no args
-lpm -s   <term>     # search available packages
-lpm deps   <pkg...>   # show dependency tree
-lpm -qi  <pkg...>   # package info
-lpm -c   <pkg...>   # run check() test suite
-lpm -rcc [pkg...]   # clean build cache
-lpm -l              # list installed packages
-lpm -l --count      # print number of installed packages (bare integer)
+lpm install   <pkg...>      # fetch PKGBUILD, build, and install
+lpm remove    <pkg...>      # remove package(s)
+lpm upgrade   [pkg...]      # upgrade packages (all if none given)
+lpm update                  # sync package databases
+lpm search    <term>        # search available packages
+lpm info      <pkg...>      # package information
+lpm deps      [pkg...]      # dependency tree
+lpm list                    # list installed packages
+lpm owns      <path>        # which package owns a file
+lpm files     <pkg>         # list files in a package
+lpm orphans                 # show orphaned packages
+lpm cache     [clean]       # manage build cache
+lpm verify    [pkg...]      # verify installed package integrity
+lpm test      <pkg...>      # run check() test suite
+lpm audit                   # show audit log
+lpm bootstrap -C <target>   # install base system into a target directory
+lpm key       <sub>         # key management
+lpm package   <sub>         # package tools (build/pack)
+lpm repo      <sub>         # repository management
 ```
 
-### Flags for `-S` and `-bi`
+### Common options
 
 | Flag | Description |
 |------|-------------|
-| `--yes` | Skip all prompts, auto-run `check()` |
-| `--strict` | `check()` failure blocks install — hard stop |
-| `--bootstrap` | LFS/fresh system mode: auto-yes, skip `check()`, ignore strict |
-
-```sh
-# typical developer run — no questions asked
-lpm -bi gcc --yes
-
-# CI / automated build — fail fast on test failures
-lpm -bi python3 --yes --strict
-
-# LFS build — no questions, no tests, just install
-lpm -bi setuptools ninja meson kmod coreutils --bootstrap
-```
-
-### Flags for `-r`
-
-| Flag | Description |
-|------|-------------|
-| `--force` | Override dep check and CriticalPkg protection |
-| `--no-confirm` | Non-interactive removal (scripts only) |
+| `--force` | Override conflict and CriticalPkg checks |
+| `--dry-run` | Simulate without making changes |
+| `--debug=N` | Debug level 1–3 |
 
 ---
 
@@ -151,120 +133,50 @@ package() {
 }
 ```
 
-`sources` is a bash array — one entry per file to fetch, in the order they're
-needed. Entries can be full URLs or paths relative to the PKGBUILD (e.g.
-`"patches/fix1.patch"` for a patch shipped alongside it); either form is
-copied through to the downloader exactly as written, never rewritten.
+`sources` is a bash array — one entry per file to fetch.
+`checksums` is parallel — `checksums[i]` describes `sources[i]`.
+Each checksum entry is `"<algo>:<hex>"` (`sha512:`, `sha256:`, or `md5:`) or `"SKIP"`.
 
-`checksums` is a parallel array — `checksums[i]` describes `sources[i]`, same
-index. Each entry is `"<algo>:<hex>"` (`sha512:`, `sha256:`, or `md5:`) or the
-literal string `"SKIP"` to leave that source unverified. The algorithm is
-read entirely from the prefix; there's no separate field per hash type.
-
-Both arrays accept either the multi-line form shown above or a single-line
-`sources=("url1" "url2")` — whitespace alone separates elements, no special
-punctuation required.
-
-`uninstall()` — can exist in the file, **will never be executed**. Removal is handled entirely by LPM via `files.list`. This is intentional and not changing.
+`uninstall()` may exist in the file but is never executed. Removal is handled by LPM via `files.list`.
 
 ---
 
 ## Configuration — `/etc/lpm/lpm.conf`
 
-Created automatically on first run with sane defaults.
-
 ```ini
-# Packages requiring triple-YES confirmation before removal.
-# Without --force, these are hard-blocked.
-CriticalPkg = glibc gcc binutils bash coreutils sed grep gawk
-CriticalPkg = findutils tar make patch perl python3 openssl
-CriticalPkg = linux dinit lpm
+# Parallel build jobs.
+# 0 = automatic.
+JOBS = 0
 
-# Packages skipped during 'lpm -u'.
-# Can still be updated manually with 'lpm -u <pkg>'.
-IgnorePkg =
-
-# Passed to every make invocation during build.
-# Default: ceil(nproc/2) — conservative to avoid OOM on large builds.
+# Extra flags for make.
 MAKEFLAGS = -j4
 
-# Skip all confirmation prompts (automation/scripting).
-DEFAULT_YES = n
+# Build workspace.
+BUILDDIR = /var/cache/lpm
 
-# Treat check() failure as a fatal install block globally.
-DEFAULT_STRICT = n
+# Per-package build logs.
+LOGDIR = /var/log/lpm
 
-# Automatically run check() after build without asking.
-RUN_CHECK = n
+# File ownership database.
+FILESDIR = /var/lib/lpm/files
 
-# check() failure blocks install (same as --strict flag).
-STRICT_BUILD = n
+# Packages that require --force to remove.
+CriticalPkg = musl musl-dev ld-musl gcc binutils bash coreutils
+CriticalPkg = linux dinit lpm busybox
 
-# Per-package build log directory.
-LogDir = /var/log/lpm
-
-# File ownership database root.
-FilesDir = /var/lib/lpm/files
+# Packages skipped during system upgrades.
+IgnorePkg =
 ```
 
-`CriticalPkg` lines are additive — split across multiple lines for readability.  
-Boolean values: only `y` or `n` accepted — anything else is a hard error.
+`CriticalPkg` lines are additive. See the shipped `lpm.conf` for the full option set.
 
 ---
 
-## Removal flow
+## Removal
 
-LPM classifies packages at removal time:
-
-**🟢 NORMAL** — no reverse deps, not in CriticalPkg:
-```
-Packages to remove (1):
-  htop
-
-Would you like to remove these packages? [Yes/No]
-```
-
-**🟡 IMPORTANT** — has reverse deps, not in CriticalPkg:
-```
-warning: Removing 'ffmpeg' may break some applications.
-Required by: mpv vlc
-
-Proceed? [Yes/No]
-```
-
-**🔴 CRITICAL** — in CriticalPkg (requires `--force`):
-```
-ERROR: GLIBC IS A CRITICAL PACKAGE!!
-REQUIRED BY: gcc bash coreutils ... 4 more
-
-YOU ARE ABOUT TO BREAK YOUR SYSTEM.
-THIS ACTION CANNOT BE UNDONE.
-
-Type YES to continue:
-> YES
-
-FINAL CONFIRMATION: REMOVE THESE PACKAGES? (type YES to continue)
-> YES
-
-LAST WARNING: SYSTEM MAY BECOME UNUSABLE.
-Type DELETE to proceed:
-> DELETE
-```
-
----
-
-## lpm-dev
-
-A stripped-down binary for the Lotus developer workflow. Exposes only `-bi`.  
-No removal, no repo fetch, no critical package protection — you're the developer, you know what you're doing.
-
-```sh
-lpm-dev -bi gcc            # build + install, asks at each step
-lpm-dev -bi gcc --yes      # fully automatic
-lpm-dev -bi gcc --yes --strict  # automatic, fails hard on test failures
-```
-
-Shares the same DB, file ownership records, and logs as `lpm` — fully compatible.
+- Ordinary packages prompt once before removal.
+- Packages listed in `CriticalPkg` are refused unless `--force` is given.
+- Reverse dependencies block removal unless `--force` or `--recursive` (`-Rs`) is used.
 
 ---
 
@@ -273,20 +185,18 @@ Shares the same DB, file ownership records, and logs as `lpm` — fully compatib
 ```
 lpm/
 ├── include/
-│   ├── lpm.h          # types, structs, defines, all prototypes
-│   └── config.h       # LpmConfig struct, parser prototypes
+│   ├── lpm.h          # types, structs, prototypes
+│   ├── config.h       # config API notes
+│   └── llpm/          # libllpm public headers
 ├── src/
 │   ├── main.c         # entry point, command dispatch
-│   ├── main_dev.c     # lpm-dev entry point
-│   ├── build.c        # cmd_sync, cmd_local, cmd_remove, cmd_update, cmd_check
-│   ├── build_dev.c    # cmd_local_dev — developer build+install
-│   ├── config.c       # /etc/lpm/lpm.conf parser
-│   ├── db.c           # installed DB, file ownership database
-│   ├── dep.c          # dependency resolution, toposort
-│   ├── pkgbuild.c     # PKGBUILD parser, reverse_deps
-│   ├── search.c       # cmd_search, cmd_info, cmd_list
-│   ├── cache.c        # cmd_rcc — build cache cleanup
-│   └── util.c         # die, warn, confirm, lpm_log, lpm_audit
+│   ├── build.c        # install, remove, upgrade, bootstrap
+│   ├── config.c       # lpm.conf parser
+│   ├── db.c           # installed DB, file ownership
+│   ├── dep.c          # dependency resolution
+│   ├── sync.c         # repository sync / upgrades
+│   └── libllpm/       # shared library sources
+├── lpm.conf           # default configuration
 └── Makefile
 ```
 
@@ -298,7 +208,7 @@ lpm/
 |------|---------|
 | `/usr/src/lpm/pkgbuild_<name>` | PKGBUILD storage |
 | `/var/cache/lpm/<name>/` | Build workspace |
-| `/var/lib/lpm/installed` | Installed package DB |
+| `/var/lib/lpm/db/installed` | Installed package DB |
 | `/var/lib/lpm/files/<name>/files.list` | File ownership list |
 | `/var/log/lpm/<name>.log` | Per-package build log |
 | `/var/log/lpm/audit.log` | Security audit log |

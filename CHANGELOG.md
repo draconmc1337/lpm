@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.0.0] — 2026-07-23
+
+### Changed — configuration modernization (BREAKING for docs/layout)
+
+- **`lpm.conf` rewritten** from scratch: concise comments, logical sections,
+  consistent option naming. Path options use `LOGDIR` / `FILESDIR` (legacy
+  `LogDir` / `FilesDir` still accepted).
+- **Documentation** updated to match current commands and removal behaviour
+  (`CriticalPkg` requires `--force`; no triple-confirmation flow).
+- **Version** bumped to 2.0.0 for both `lpm` and `libllpm`
+  (`LPM_VERSION`, `LLPM_LIB_VERSION`, Makefile `VERSION`, `--version` output).
+
 ## [1.5.0] — 2026-07-05
 
 ### Changed — PKGBUILD source/checksum format (BREAKING)

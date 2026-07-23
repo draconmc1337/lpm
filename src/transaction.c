@@ -55,8 +55,7 @@ int tx_commit(Transaction *tx, const char *root) {
         /* merge pkgdir into root */
         if (pkg_merge(pkg, root, tx) != 0) {
             fprintf(stderr,
-                C_RED "error:" C_RESET
-                " merge failed for %s — rolling back\n", pkg->name);
+                "Error: merge failed for %s — rolling back\n", pkg->name);
             tx_rollback(tx, root);
             return -1;
         }
@@ -64,8 +63,7 @@ int tx_commit(Transaction *tx, const char *root) {
         /* record install in db */
         if (db_record_install(pkg, root) != 0) {
             fprintf(stderr,
-                C_RED "error:" C_RESET
-                " db record failed for %s\n", pkg->name);
+                "Error: db record failed for %s\n", pkg->name);
             tx_rollback(tx, root);
             return -1;
         }
@@ -76,7 +74,7 @@ int tx_commit(Transaction *tx, const char *root) {
         if (pkg->has_post_install)
             pkg_run_hook("post_install", pkg, root);
 
-        printf("Installed %s-%s-%s [OK]\n",
+        printf("Installed %s-%s-%s\n",
                pkg->name, pkg->version, pkg->release);
     }
 
@@ -89,7 +87,7 @@ int tx_rollback(Transaction *tx, const char *root) {
     if (tx->committed) return 0;
     if (tx->nmerged == 0) return 0;
 
-    printf(":: Rolling back transaction (%d files)...\n", tx->nmerged);
+    printf("Rolling back (%d files)...\n", tx->nmerged);
 
     /* remove in reverse order */
     for (int i = tx->nmerged - 1; i >= 0; i--) {
@@ -109,6 +107,6 @@ int tx_rollback(Transaction *tx, const char *root) {
             safety_restore_configs(pkg, root);
     }
 
-    printf(":: Rollback complete.\n");
+    printf("Done.\n");
     return 0;
 }

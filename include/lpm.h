@@ -25,7 +25,7 @@
 #include <unistd.h>
 
 /* ── version ─────────────────────────────────────────────────────────── */
-#define LPM_VERSION "1.5.0"
+#define LPM_VERSION "2.0.0"
 
 /* ── upstream repository ────────────────────────────────────────────────
  * Single source of truth for the repo-lotus base URL. build.c, sync.c and
@@ -72,16 +72,16 @@
 #define MAX_SRCS LPM_MAX_SOURCES
 #define MAX_CMD 16384
 
-/* ── colors ──────────────────────────────────────────────────────────── */
-#define C_RESET  "\033[0m"
-#define C_BOLD   "\033[1m"
-#define C_RED    "\033[1;31m"
-#define C_GREEN  "\033[1;32m"
-#define C_YELLOW "\033[1;33m"
-#define C_BLUE   "\033[1;34m"
-#define C_PINK   "\033[1;35m"
-#define C_CYAN   "\033[1;36m"
-#define C_GRAY   "\033[0;90m"
+/* ── colors (disabled — monochrome professional output) ─────────────── */
+#define C_RESET  ""
+#define C_BOLD   ""
+#define C_RED    ""
+#define C_GREEN  ""
+#define C_YELLOW ""
+#define C_BLUE   ""
+#define C_PINK   ""
+#define C_CYAN   ""
+#define C_GRAY   ""
 
 /* ── debug level (global, set from --debug=N or LPM_DEBUG env) ──────── */
 extern int g_debug;
@@ -95,9 +95,9 @@ extern int g_debug;
     do { \
         if (g_debug >= (level)) { \
             if ((level) >= 3) \
-                fprintf(stderr, "\033[2m[TRACE] " fmt "\033[0m\n", ##__VA_ARGS__); \
+                fprintf(stderr, "[TRACE] " fmt "\n", ##__VA_ARGS__); \
             else \
-                fprintf(stderr, "\033[2m[DEBUG] " fmt "\033[0m\n", ##__VA_ARGS__); \
+                fprintf(stderr, "[DEBUG] " fmt "\n", ##__VA_ARGS__); \
         } \
     } while (0)
 
@@ -256,6 +256,7 @@ typedef struct {
   int no_check;       /* --no-check            */
   int dry_run;        /* --dry-run             */
   int force;          /* --force               */
+  int recursive;      /* -Rs / --recursive     */
   int debug;          /* --debug=N  (1/2/3)    */
   int pack_only;
 } LpmFlags;

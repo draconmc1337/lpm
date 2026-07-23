@@ -120,6 +120,8 @@ int lpm_parse_flags(int argc, char **argv, LpmFlags *f, char **pkgs,
     else if (!strcmp(argv[i], "--strict"))         f->strict         = 1;
     else if (!strcmp(argv[i], "--no-check"))       f->no_check       = 1;
     else if (!strcmp(argv[i], "--no-recommended")) f->no_recommended = 1;
+    else if (!strcmp(argv[i], "--recursive") || !strcmp(argv[i], "-Rs"))
+      f->recursive = 1;
     else if (!strncmp(argv[i], "--debug=", 8)) {
       int lvl = atoi(argv[i] + 8);
       if (lvl < 1) lvl = 1;
@@ -784,8 +786,7 @@ void do_build_install(Package *pkg, const char *pbfile_orig, LpmConfig *cfg,
 
   Package *pkg_arr[1] = { pkg };
   if (safety_check_conflicts(pkg_arr, 1, "/") != 0 && !flags->force) {
-    fprintf(stderr, C_RED "error: " C_RESET
-            "named conflicts block install of %s\n", pkg->name);
+    fprintf(stderr, "Cannot continue.\n");
     PBCLEAN(); tx_free(tx);
     exit(1);
   }
@@ -1389,9 +1390,6 @@ void cmd_sync(int argc, char **argv) {
   if (npkgs == 0)
     die("No package specified.\nUsage: lpm install <package>");
 
-
-  time_t _tx_start = time(NULL);
-
   /* ── group expansion: "lpm install xlib" → all group members ─────── */
   {
     static char _exp_buf[320][LPM_NAME_MAX];
@@ -1401,8 +1399,7 @@ void cmd_sync(int argc, char **argv) {
       char _mem[256][LPM_NAME_MAX];
       int  _nm = cmd_group_expand(pkgs[_ai], _mem, 256);
       if (_nm > 0) {
-        printf(":: Expanding group "
-               C_BOLD "'%s'" C_RESET " (%d packages)\n",
+        printf("Expanding group '%s' (%d packages)\n",
                pkgs[_ai], _nm);
         for (int _mi = 0; _mi < _nm && _exp_n < 320; _mi++) {
           strncpy(_exp_buf[_exp_n], _mem[_mi], LPM_NAME_MAX-1);
@@ -1442,7 +1439,9 @@ void cmd_sync(int argc, char **argv) {
     fetch_pkgbuilds_parallel(req, npkgs, missing, &nm);
     if (nm > 0) {
       for (int i = 0; i < nm; i++)
-        fprintf(stderr, C_RED "error:" C_RESET " target not found: %s\n",
+        fprintf(stderr, "Error:\n\n"
+                "target not found: %s\n\n"
+                "Cannot continue.\n",
                 missing[i]);
       exit(1);
     }
@@ -1452,6 +1451,7 @@ void cmd_sync(int argc, char **argv) {
    * STEP 2: Resolve full dep queue (topo-sorted, skip installed)
    *   Then batch-fetch all missing dep PKGBUILDs in parallel.
    * ══════════════════════════════════════════════════════════════════ */
+  printf("Resolving dependencies...\n\n");
   char queue[256][MAX_STR];
   int nqueue = build_queue(pkgs, npkgs, queue, 256);
 
@@ -1486,11 +1486,11 @@ void cmd_sync(int argc, char **argv) {
    *   Would you like to install recommended packages? [Y/n]
    * ══════════════════════════════════════════════════════════════════ */
   if (nqueue == 0) {
-    printf(":: Nothing to do.\n");
+    printf("There is nothing to do.\n");
     return;
   }
 
-  /* ── Transaction summary (Slackware-style flat list) ────────────── */
+  /* ── Transaction summary ────────────────────────────────────────── */
   {
     long total_dl = 0, total_inst = 0;
     int  n_new = 0;
@@ -1514,14 +1514,21 @@ void cmd_sync(int argc, char **argv) {
     }
 
     if (n_new == 0) {
-      printf("::" " Nothing to do.\n");
+      /* all targets already installed — report first explicit target */
+      char pbf[LPM_PATH_MAX + LPM_NAME_MAX + 16];
+      snprintf(pbf, sizeof(pbf), "%s/pkgbuild_%s",
+               LPM_PKGBUILD_DIR, pkgs[0]);
+      Package fm; memset(&fm, 0, sizeof(fm));
+      pkgbuild_parse_fast(pbf, &fm);
+      if (fm.version[0])
+        printf("%s-%s is already installed.\n", pkgs[0], fm.version);
+      else
+        printf("%s is already installed.\n", pkgs[0]);
       return;
     }
 
-    /* header */
-    printf("\nPackages to install (%d):\n", n_new);
+    printf("Packages (%d)\n\n", n_new);
 
-    /* second pass: print each package */
     for (int i = 0; i < nqueue; i++) {
       if (db_is_installed(queue[i])) continue;
       char pbf[LPM_PATH_MAX + LPM_NAME_MAX + 16];
@@ -1529,29 +1536,22 @@ void cmd_sync(int argc, char **argv) {
                LPM_PKGBUILD_DIR, queue[i]);
       Package fm; memset(&fm, 0, sizeof(fm));
       pkgbuild_parse_fast(pbf, &fm);
-      const char *type = (fm.type == PKG_TYPE_BINARY) ? "binary" : "source";
-      char verstr[LPM_VER_MAX + 24] = "";
-      if (fm.version[0] && fm.release[0])
-        snprintf(verstr, sizeof(verstr), "-%s-%s", fm.version, fm.release);
-      else if (fm.version[0])
-        snprintf(verstr, sizeof(verstr), "-%s", fm.version);
-      printf(" %s%s (%s)\n", queue[i], verstr, type);
+      if (fm.version[0])
+        printf("%s-%s\n", queue[i], fm.version);
+      else
+        printf("%s\n", queue[i]);
     }
 
-    /* sizes */
     if (total_dl > 0 || total_inst > 0) {
       printf("\n");
       char sdl[24], sinst[24];
       format_size(total_dl,   sdl,   sizeof(sdl));
       format_size(total_inst, sinst, sizeof(sinst));
-      if (total_dl   > 0) printf("Download:   %s\n", sdl);
-      if (total_inst > 0) printf("Installed:  %s\n", sinst);
+      if (total_dl   > 0) printf("Download size: %s\n", sdl);
+      if (total_inst > 0) printf("Installed size: %s\n", sinst);
     }
     printf("\n");
   }
-  int n_new = 0;
-  for (int i = 0; i < nqueue; i++)
-    if (!db_is_installed(queue[i])) n_new++;
 
   /* ── collect recommends from ALL packages in queue ── */
   char rec_names[64][LPM_NAME_MAX];
@@ -1590,30 +1590,28 @@ void cmd_sync(int argc, char **argv) {
   /* display recommends and ask once */
   int install_recommends = 0;
   if (nrec > 0) {
-    printf("Recommended packages:\n");
+    printf("Recommended packages:\n\n");
     for (int r = 0; r < nrec; r++) {
       if (rec_descs[r][0])
-        printf(" %s - %s\n", rec_names[r], rec_descs[r]);
+        printf("%s - %s\n", rec_names[r], rec_descs[r]);
       else
-        printf(" %s\n", rec_names[r]);
+        printf("%s\n", rec_names[r]);
     }
     printf("\n");
 
     if (flags.no_confirm)
       install_recommends = 1;
     else
-      install_recommends = confirm(
-        ":: Install recommended packages? [Y/n] ");
+      install_recommends = confirm("Install recommended packages? [Y/n] ");
     printf("\n");
   }
 
   /* final confirm */
   if (!flags.no_confirm) {
-    if (!confirm(":: Proceed with installation? [Y/n] ")) {
-      printf("Operation cancelled.\n");
+    if (!confirm("Proceed? [Y/n] "))
       return;
-    }
   }
+  printf("\n");
 
   /* ══════════════════════════════════════════════════════════════════
    * STEP 4: "Buy everything at the market first"
@@ -1668,8 +1666,6 @@ void cmd_sync(int argc, char **argv) {
     const char *pkgname = dl_queue[qi];
 
     if (db_is_installed(pkgname)) {
-      printf("%s already installed, skipping\n",
-             pkgname);
       continue;
     }
 
@@ -1720,7 +1716,7 @@ void cmd_sync(int argc, char **argv) {
         char part[LPM_PATH_MAX];
         snprintf(part, sizeof(part), "%s.part", lpkg_dest);
 
-        printf("Downloading %s (%d/%d)...\n", pkgname, qi + 1, ndl);
+        printf("Downloading...\n\n%s\n\n", lpkg_fname);
 
         char dl_cmd[2048];
         snprintf(dl_cmd, sizeof(dl_cmd),
@@ -1741,17 +1737,20 @@ void cmd_sync(int argc, char **argv) {
       }
 
       if (bin_ok) {
-        printf("Installing %s (%d/%d)... ", pkgname, qi + 1, ndl);
+        printf("Installing %s...\n", pkgname);
         fflush(stdout);
         int _bin_rc = lpkg_install_from_file(lpkg_dest);
-        printf("%s\n", _bin_rc == 0 ? "[OK]" : "[FAILED]");
+        if (_bin_rc != 0)
+          fprintf(stderr, "Error:\n\n"
+                  "install failed: %s\n\n"
+                  "Cannot continue.\n", pkgname);
         lpm_log("Installed %s (binary) from repo", pkgname);
         continue;
       }
 
       /* binary not found in any repo — fall through to source build */
-      printf("warning: binary for %s not found in repo, falling back to source build\n",
-             pkgname);
+      warn("binary for %s not found in repo, falling back to source build",
+           pkgname);
     }
 
     /* ── source build: add to src_queue ─────────────────────────── */
@@ -1760,10 +1759,9 @@ void cmd_sync(int argc, char **argv) {
 
   /* Download all source tarballs in one batch */
   if (nsrc > 0) {
-    printf(":: Downloading sources (%d package(s))...\n", nsrc);
+    printf("Downloading...\n\n");
     if (fetch_all_sources(src_queue, nsrc) != 0)
       die("Source download failed — aborting before any build.");
-    printf(":: All sources downloaded.\n\n");
 
     /* Build + install source packages in topo order */
     for (int qi = 0; qi < nsrc; qi++) {
@@ -1778,25 +1776,18 @@ void cmd_sync(int argc, char **argv) {
         continue;
       }
 
-      if (db_is_installed(src_queue[qi])) {
-        printf("%s already installed, skipping\n",
-               src_queue[qi]);
+      if (db_is_installed(src_queue[qi]))
         continue;
-      }
+      printf("Installing %s...\n", src_queue[qi]);
       do_build_install(&pkg, pbfile2, &cfg, qi, nsrc, &flags);
     }
   }
 
 sync_done:;
-  {
-    long _tx_elapsed = (long)(time(NULL) - _tx_start);
-    if (g_cancel)
-      printf("\n:: Transaction aborted (%ldm%lds)\n",
-             _tx_elapsed / 60, _tx_elapsed % 60);
-    else
-      printf("\n:: Transaction completed (%ldm%lds)\n",
-             _tx_elapsed / 60, _tx_elapsed % 60);
-  }
+  if (g_cancel)
+    printf("\nAborted.\n");
+  else
+    printf("\nDone.\n");
 }
 
 /* ── cmd_check (test) ─────────────────────────────────────────────────── *
@@ -1870,15 +1861,83 @@ void cmd_check(int argc, char **argv) {
 check_done:;
 }
 
+/* ── helpers for recursive remove / reverse-dep checks ───────────────── */
+
+static int remove_set_contains(char **set, int n, const char *name) {
+  for (int i = 0; i < n; i++)
+    if (set[i] && !strcmp(set[i], name)) return 1;
+  return 0;
+}
+
+/* Collect packages outside `set` that depend on `target`. */
+static int collect_breakers(const char *target, char **set, int nset,
+                            char out[][LPM_NAME_MAX], int maxout) {
+  char *rdeps = reverse_deps(target);
+  int n = 0;
+  if (!rdeps || !rdeps[0]) return 0;
+
+  char buf[LPM_NAME_MAX * 256];
+  snprintf(buf, sizeof(buf), "%s", rdeps);
+  char *save = NULL;
+  for (char *tok = strtok_r(buf, " \t", &save);
+       tok && n < maxout;
+       tok = strtok_r(NULL, " \t", &save)) {
+    if (remove_set_contains(set, nset, tok)) continue;
+    snprintf(out[n++], LPM_NAME_MAX, "%s", tok);
+  }
+  return n;
+}
+
+/* Expand remove set with unused deps (REASON_DEP, not required outside set). */
+static int expand_unused_deps(char **pkgs, int *npkgs, int maxpkgs,
+                              char storage[][LPM_NAME_MAX]) {
+  int changed = 1;
+  while (changed) {
+    changed = 0;
+    int ncur = *npkgs;
+    for (int i = 0; i < ncur && *npkgs < maxpkgs; i++) {
+      char pbf[LPM_PATH_MAX + LPM_NAME_MAX + 16];
+      snprintf(pbf, sizeof(pbf), "%s/pkgbuild_%s",
+               LPM_PKGBUILD_DIR, pkgs[i]);
+      Package meta; memset(&meta, 0, sizeof(meta));
+      if (pkgbuild_parse_fast(pbf, &meta) != 0) continue;
+
+      for (int d = 0; d < meta.ndepends && *npkgs < maxpkgs; d++) {
+        char depname[LPM_NAME_MAX];
+        snprintf(depname, sizeof(depname), "%s", meta.depends[d]);
+        char *op = strpbrk(depname, "><=");
+        if (op) *op = '\0';
+        if (!depname[0] || !db_is_installed(depname)) continue;
+        if (remove_set_contains(pkgs, *npkgs, depname)) continue;
+
+        InstalledPkg ip; memset(&ip, 0, sizeof(ip));
+        if (db_query(depname, &ip) != 0) continue;
+        if (ip.reason != REASON_DEP) continue;
+
+        /* still required by something outside the remove set? */
+        char breakers[64][LPM_NAME_MAX];
+        int nb = collect_breakers(depname, pkgs, *npkgs, breakers, 64);
+        if (nb > 0) continue;
+
+        snprintf(storage[*npkgs], LPM_NAME_MAX, "%s", depname);
+        pkgs[*npkgs] = storage[*npkgs];
+        (*npkgs)++;
+        changed = 1;
+      }
+    }
+  }
+  return 0;
+}
+
 /* ── cmd_remove (remove) ─────────────────────────────────────────────────── *
  * Remove one or more installed packages.                                *
  *                                                                        *
- * Safety checks performed before removal:                               *
- *   - reverse dependency check (blocks removal if others depend on pkg) *
- *   - CriticalPkg protection (requires triple confirmation + "DELETE")  *
- *   - installed check (refuses to remove packages that aren't there)    *
+ * Safety checks:                                                        *
+ *   - reverse dependency check (blocks unless --force or -Rs)           *
+ *   - CriticalPkg protection (--force required)                         *
+ *   - installed check                                                   *
  *                                                                        *
- * Each package removal is wrapped in the remove journal for crash safety.*
+ * -Rs / --recursive also removes unused dependencies of the targets.    *
  * ─────────────────────────────────────────────────────────────────────── */
 void cmd_remove(int argc, char **argv) {
   check_root();
@@ -1890,122 +1949,143 @@ void cmd_remove(int argc, char **argv) {
 
   LpmFlags flags;
   char *pkgs[256];
-  memset(pkgs, 0, sizeof(pkgs)); /* null-terminate for safety */
+  static char pkg_storage[256][LPM_NAME_MAX];
+  memset(pkgs, 0, sizeof(pkgs));
   int npkgs = lpm_parse_flags(argc, argv, &flags, pkgs, 255);
 
   if (npkgs == 0)
     die("No package specified.\nUsage: lpm remove <package(s)>");
 
+  /* copy names into stable storage (recursive expand needs it) */
+  int nexplicit = npkgs;
+  for (int i = 0; i < npkgs; i++) {
+    snprintf(pkg_storage[i], LPM_NAME_MAX, "%s", pkgs[i]);
+    pkgs[i] = pkg_storage[i];
+  }
+
   /* ── 1. verify all packages are installed ───────────────────────── */
   for (int i = 0; i < npkgs; i++) {
     if (!db_is_installed(pkgs[i])) {
       fprintf(stderr,
-              C_RED "error: " C_RESET "\'%s\' is not installed\n",
+              "Error:\n\n"
+              "'%s' is not installed\n\n"
+              "Cannot continue.\n",
               pkgs[i]);
       exit(1);
     }
   }
 
-  /* ── 2. critical guard ──────────────────────────────────────────── */
-  for (int i = 0; i < npkgs; i++) {
-    if (!lpm_config_is_critical(&cfg, pkgs[i])) continue;
+  /* ── dry-run ────────────────────────────────────────────────────── */
+  if (flags.dry_run) {
+    if (flags.recursive)
+      expand_unused_deps(pkgs, &npkgs, 256, pkg_storage);
+    DryRun dr;
+    dryrun_remove(pkgs, npkgs, &dr);
+    dryrun_print(&dr);
+    return;
+  }
 
-    if (!flags.force) {
+  /* ── 2. critical guard ──────────────────────────────────────────── */
+  {
+    char crit[64][LPM_NAME_MAX];
+    int ncrit = 0;
+    for (int i = 0; i < npkgs && ncrit < 64; i++) {
+      if (lpm_config_is_critical(&cfg, pkgs[i]))
+        snprintf(crit[ncrit++], LPM_NAME_MAX, "%s", pkgs[i]);
+    }
+    if (ncrit > 0 && !flags.force) {
+      fprintf(stderr, "Error:\n\n");
+      fprintf(stderr, "Refusing to remove critical packages.\n\n");
+      fprintf(stderr, "Requested:\n\n");
+      for (int i = 0; i < ncrit; i++)
+        fprintf(stderr, "%s\n", crit[i]);
       fprintf(stderr,
-              "error: package \'%s\' is marked critical\n\n"
-              "Removing this package may render Lotus Linux unusable.\n\n"
-              "Use:\n\n"
-              "  lpm remove %s --force\n",
-              pkgs[i], pkgs[i]);
+              "\nSystem may become unusable.\n\n"
+              "Use --force only if you know what you are doing.\n");
       exit(1);
     }
+    if (ncrit > 0 && flags.force) {
+      printf("Warning:\n\n");
+      printf("Removing critical packages.\n\n");
+      printf("Requested:\n\n");
+      for (int i = 0; i < ncrit; i++)
+        printf("%s\n", crit[i]);
+      printf("\nSystem may become unusable.\n\n");
+    }
+  }
 
-    /* --force: show WARNING + dependent list + confirm */
-    InstalledPkg _ip; memset(&_ip, 0, sizeof(_ip));
-    db_query(pkgs[i], &_ip);
-    printf("WARNING\n\n");
-    printf("Critical package:\n  %s %s\n\n",
-           pkgs[i], _ip.version[0] ? _ip.version : "?");
-    printf("Dependent packages:\n");
-
-    InstalledPkg *all = NULL; int nall = 0;
-    int shown = 0;
-    if (db_list_all(&all, &nall) == 0 && all != NULL) {
-      for (int j = 0; j < nall && shown < 12; j++) {
-        if (!strcmp(all[j].name, pkgs[i])) continue;
-        char pbf[LPM_PATH_MAX * 2];
-        snprintf(pbf, sizeof(pbf), "%s/pkgbuild_%s",
-                 LPM_PKGBUILD_DIR, all[j].name);
-        char gc[sizeof(pbf) + 64];
-        snprintf(gc, sizeof(gc),
-                 "grep -qF '%s' '%s' 2>/dev/null", pkgs[i], pbf);
-        if (system(gc) == 0) {
-          printf("  %s\n", all[j].name);
-          shown++;
-        }
+  /* ── 3. reverse-dep / recursive expand ──────────────────────────── */
+  int nunused = 0;
+  if (flags.recursive) {
+    expand_unused_deps(pkgs, &npkgs, 256, pkg_storage);
+    nunused = npkgs - nexplicit;
+  } else if (!flags.force) {
+    for (int i = 0; i < nexplicit; i++) {
+      char breakers[64][LPM_NAME_MAX];
+      int nb = collect_breakers(pkgs[i], pkgs, nexplicit, breakers, 64);
+      if (nb > 0) {
+        fprintf(stderr, "Error:\n\n");
+        fprintf(stderr, "Removing %s breaks:\n\n", pkgs[i]);
+        for (int b = 0; b < nb; b++)
+          fprintf(stderr, "%s\n", breakers[b]);
+        fprintf(stderr, "\nCannot continue.\n");
+        exit(1);
       }
-      free(all); all = NULL;
     }
-    if (shown == 0)
-      printf("  (none found)\n");
-
-    printf("\nRemoving this package may break the system.\n\n");
-    if (!flags.no_confirm)
-      if (!confirm(":: Proceed with removal? [y/" C_BOLD "N" C_RESET "] "))
-        exit(0);
   }
 
-  /* ── 3. package list summary ────────────────────────────────────── */
-  {
-    long total_freed = 0;
-    printf("\nPackages to remove (%d):\n", npkgs);
-    for (int i = 0; i < npkgs; i++) {
-      InstalledPkg ip; memset(&ip, 0, sizeof(ip));
-      db_query(pkgs[i], &ip);
-      char verstr[LPM_VER_MAX + 32] = "";
-      if (ip.version[0] && ip.release[0])
-        snprintf(verstr, sizeof(verstr), "-%s-%s", ip.version, ip.release);
-      else if (ip.version[0])
-        snprintf(verstr, sizeof(verstr), "-%s", ip.version);
-      printf(" %s%s\n", pkgs[i], verstr);
-      total_freed += (long)ip.install_size;
-    }
-    if (total_freed > 0) {
-      char sfree[32];
-      format_size(total_freed, sfree, sizeof(sfree));
-      printf("\nFreed:  %s\n", sfree);
-    }
-    printf("\n");
+  /* ── 4. package list summary ────────────────────────────────────── */
+  long total_freed = 0;
+  for (int i = 0; i < npkgs; i++) {
+    InstalledPkg ip; memset(&ip, 0, sizeof(ip));
+    db_query(pkgs[i], &ip);
+    total_freed += (long)ip.install_size;
   }
 
-  /* ── 4. confirm ─────────────────────────────────────────────────── */
+  if (flags.recursive && nunused > 0) {
+    printf("Removing:\n\n");
+    for (int i = 0; i < nexplicit; i++)
+      printf("%s\n", pkgs[i]);
+    printf("\nUnused dependencies:\n\n");
+    for (int i = nexplicit; i < npkgs; i++)
+      printf("%s\n", pkgs[i]);
+  } else {
+    printf("Removing packages:\n\n");
+    for (int i = 0; i < npkgs; i++)
+      printf("%s\n", pkgs[i]);
+  }
+
+  if (total_freed > 0) {
+    char sfree[32];
+    format_size(total_freed, sfree, sizeof(sfree));
+    printf("\nFreed space: %s\n", sfree);
+  }
+  printf("\n");
+
+  /* ── 5. confirm ─────────────────────────────────────────────────── */
   if (!flags.no_confirm) {
-    if (!confirm(":: Proceed with removal? [Y/n] ")) {
-      printf("Operation cancelled.\n");
+    if (!confirm("Proceed? [Y/n] "))
       return;
-    }
   }
 
-  /* ── 5. execute removal ─────────────────────────────────────────── */
+  /* ── 6. execute removal ─────────────────────────────────────────── */
   int interrupted = 0;
   printf("\n");
   for (int i = 0; i < npkgs && !interrupted; i++) {
     if (g_cancel) { interrupted = 1; break; }
 
     const char *name = pkgs[i];
-    printf("Removing %s (%d/%d)... ", name, i + 1, npkgs);
+    printf("Removing %s...\n", name);
     fflush(stdout);
     lpm_log("Removing %s", name);
     journal_begin(name);
 
-    /* a) remove files */
     int nfiles = db_files_remove(name);
+    (void)nfiles;
     if (g_cancel) { interrupted = 1; break; }
 
-    /* b) remove from DB */
     db_remove(name);
 
-    /* c) clean build workspace */
     {
       char cache[MAX_STR], rmcmd[MAX_STR];
       snprintf(cache,  sizeof(cache),  "%s/%s", LPM_BUILD_DIR, name);
@@ -2014,30 +2094,17 @@ void cmd_remove(int argc, char **argv) {
     }
 
     journal_done(name);
-
-    printf("[OK]");
-    if (nfiles >= 0)
-      printf(" (%d files)", nfiles);
-    printf("\n");
-    lpm_log("Removed %s (files=%d)", name, nfiles);
+    lpm_log("Removed %s", name);
     lpm_audit("remove: %s", name);
   }
 
-  /* ── 6. post-remove ─────────────────────────────────────────────── */
+  /* ── 7. post-remove ─────────────────────────────────────────────── */
   if (interrupted) {
-    fprintf(stderr,
-            "\n" C_YELLOW "warning: " C_RESET
-            "remove aborted — system integrity is no longer guaranteed\n");
+    warn("remove aborted — system integrity is no longer guaranteed");
     return;
   }
 
-  int had_crit = 0;
-  for (int i = 0; i < npkgs; i++)
-    if (lpm_config_is_critical(&cfg, pkgs[i])) { had_crit = 1; break; }
-  if (had_crit)
-    printf("\nwarning: system integrity is no longer guaranteed\n");
-
-  printf("\n:: Transaction completed\n");
+  printf("\nDone.\n");
 }
 
 
@@ -2059,7 +2126,7 @@ void cmd_update(int argc, char **argv) {
   if (argc == 0) {
     /* no args: check all installed packages */
     FILE *f = fopen(LPM_DB, "r");
-    if (!f) { printf("No packages installed via lpm.\n"); return; }
+    if (!f) { printf("There is nothing to do.\n"); return; }
     char line[MAX_STR];
     while (fgets(line, sizeof(line), f) && ntargets < 256) {
       line[strcspn(line, "\n")] = '\0';
@@ -2069,8 +2136,6 @@ void cmd_update(int argc, char **argv) {
       targets[ntargets++] = strdup(line);
     }
     fclose(f);
-    printf(":: Checking updates for %d"
-           " package(s)...\n\n", ntargets);
   } else {
     for (int i = 0; i < argc && i < 256; i++)
       targets[ntargets++] = argv[i];
@@ -2078,6 +2143,8 @@ void cmd_update(int argc, char **argv) {
 
   char *to_update[256];
   int nupdate = 0;
+  char old_vers[256][LPM_VER_MAX + 16];
+  char new_vers[256][LPM_VER_MAX + 16];
 
   for (int i = 0; i < ntargets; i++) {
     char pbfile[LPM_PATH_MAX + LPM_NAME_MAX + 16];
@@ -2085,10 +2152,8 @@ void cmd_update(int argc, char **argv) {
     struct stat st;
     if (stat(pbfile, &st) != 0) { warn("No PKGBUILD for '%s'", targets[i]); continue; }
 
-    if (lpm_config_is_ignored(&cfg, targets[i])) {
-      printf("  %-24s  ignored\n", targets[i]);
+    if (lpm_config_is_ignored(&cfg, targets[i]))
       continue;
-    }
 
     Package pkg;
     pkgbuild_parse_fast(pbfile, &pkg);
@@ -2097,54 +2162,45 @@ void cmd_update(int argc, char **argv) {
 
     char *inst_ver = db_get_version(targets[i]);
     if (!inst_ver) {
-      printf("  %-24s  unknown"
-             " -> " C_CYAN "%s" C_RESET "\n", targets[i], pb_full);
+      snprintf(old_vers[nupdate], sizeof(old_vers[0]), "unknown");
+      snprintf(new_vers[nupdate], sizeof(new_vers[0]), "%s", pb_full);
       to_update[nupdate++] = targets[i];
     } else if (version_compare(inst_ver, pb_full) >= 0) {
-      printf("  %-24s  up to date"
-             " (%s)\n", targets[i], pb_full);
       free(inst_ver);
     } else {
-      printf("  %-24s  %s"
-             " -> " C_CYAN "%s" C_RESET "\n", targets[i], inst_ver, pb_full);
+      snprintf(old_vers[nupdate], sizeof(old_vers[0]), "%s", inst_ver);
+      snprintf(new_vers[nupdate], sizeof(new_vers[0]), "%s", pb_full);
       to_update[nupdate++] = targets[i];
       free(inst_ver);
     }
   }
 
-  printf("\n");
   if (nupdate == 0) {
-    printf(":: All packages up to date.\n");
+    printf("There is nothing to do.\n");
     return;
   }
 
   {
-    printf("\nPackages to upgrade (%d):\n\n", nupdate);
+    int name_w = 0;
     for (int i = 0; i < nupdate; i++) {
-      char _pbf[LPM_PATH_MAX + LPM_NAME_MAX + 16];
-      snprintf(_pbf, sizeof(_pbf), "%s/pkgbuild_%s",
-               LPM_PKGBUILD_DIR, to_update[i]);
-      Package _fm; memset(&_fm, 0, sizeof(_fm));
-      pkgbuild_parse_fast(_pbf, &_fm);
-      const char *tag = (_fm.type == PKG_TYPE_BINARY)
-          ? " " C_BLUE "[bin]" C_RESET
-          : " " C_YELLOW "[src]" C_RESET;
-      printf("  "
-             " " C_BOLD "%s" C_RESET "%s\n",
-             to_update[i], tag);
+      int len = (int)strlen(to_update[i]);
+      if (len > name_w) name_w = len;
     }
+    printf("Packages (%d)\n\n", nupdate);
+    for (int i = 0; i < nupdate; i++)
+      printf("%-*s  %s -> %s\n",
+             name_w, to_update[i], old_vers[i], new_vers[i]);
     printf("\n");
   }
 
   if (!flags.no_confirm)
-    if (!confirm(C_CYAN "::" C_RESET " Proceed with rebuild? [" C_GREEN "Y" C_RESET "/" C_RED "n" C_RESET "] ")) {
-      printf("Operation cancelled.\n");
+    if (!confirm("Proceed? [Y/n] "))
       return;
-    }
 
+  printf("\n");
   for (int i = 0; i < nupdate; i++) {
     CHECK_CANCEL(update_done);
-    printf("\nUpgrading %s...\n", to_update[i]);
+    printf("Upgrading %s...\n", to_update[i]);
     /* wipe the build cache so it rebuilds from scratch */
     char cache[MAX_STR], rm_cmd[MAX_STR];
     snprintf(cache,  sizeof(cache),  "%s/%s", LPM_BUILD_DIR, to_update[i]);
@@ -2155,7 +2211,7 @@ void cmd_update(int argc, char **argv) {
     lpm_log("Updated %s", to_update[i]);
   }
 update_done:
-  printf("\n:: Update complete.\n");
+  printf("\nDone.\n");
 }
 
 /* ── pkg_run_hook ──────────────────────────────────────────────────────
