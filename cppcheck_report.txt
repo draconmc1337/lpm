@@ -1,0 +1,742 @@
+Checking src/audit.c ...
+src/audit.c:17:2: information: Include file: "lpm.h" not found. [missingInclude]
+#include "lpm.h"
+ ^
+src/audit.c:46:28: error: There is an unknown macro here somewhere. Configuration is required. If C_GRAY is a macro then please configure it. [unknownMacro]
+        printf("Updates: " C_GRAY "? (run `lpm update` first)" C_RESET "\n");
+                           ^
+1/34 files checked 0% done
+Checking src/build.c ...
+src/build.c:1:2: information: Include file: "lpm.h" not found. [missingInclude]
+#include "lpm.h"
+ ^
+src/build.c:2:2: information: Include file: "llpm/llpm.h" not found. [missingInclude]
+#include "llpm/llpm.h"
+ ^
+src/build.c:3:2: information: Include file: "llpm/trans.h" not found. [missingInclude]
+#include "llpm/trans.h"
+ ^
+src/build.c:4:2: information: Include file: "llpm/handle.h" not found. [missingInclude]
+#include "llpm/handle.h"
+ ^
+src/build.c:5:2: information: Include file: <ctype.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <ctype.h>
+ ^
+src/build.c:6:2: information: Include file: <stdarg.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <stdarg.h>
+ ^
+src/build.c:7:2: information: Include file: <time.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <time.h>
+ ^
+src/build.c:46:30: error: There is an unknown macro here somewhere. Configuration is required. If C_YELLOW is a macro then please configure it. [unknownMacro]
+        fprintf(stderr, "\n" C_YELLOW "warning:" C_RESET
+                             ^
+2/34 files checked 24% done
+Checking src/buildmeta.c ...
+src/buildmeta.c:9:2: information: Include file: "lpm.h" not found. [missingInclude]
+#include "lpm.h"
+ ^
+src/buildmeta.c:10:2: information: Include file: <time.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <time.h>
+ ^
+src/buildmeta.c:11:2: information: Include file: <sys/stat.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <sys/stat.h>
+ ^
+src/buildmeta.c:0:0: information: Limiting analysis of branches. Use --check-level=exhaustive to analyze all branches. [normalCheckLevelMaxBranches]
+
+^
+src/buildmeta.c:116:23: style: Variable 'ver' can be declared as pointer to const [constVariablePointer]
+                char *ver = strstr(buf, "version ");
+                      ^
+src/buildmeta.c:118:27: style: Variable 'name' can be declared as pointer to const [constVariablePointer]
+                    char *name = strstr(buf, "clang") ? "clang" : "gcc";
+                          ^
+src/buildmeta.c:142:23: style: Variable 'sp' can be declared as pointer to const [constVariablePointer]
+                char *sp = strchr(v, ' ');
+                      ^
+src/buildmeta.c:176:16: style: Variable 'tm' can be declared as pointer to const [constVariablePointer]
+    struct tm *tm = gmtime(&now);
+               ^
+3/34 files checked 25% done
+Checking src/cache.c ...
+src/cache.c:1:2: information: Include file: "lpm.h" not found. [missingInclude]
+#include "lpm.h"
+ ^
+src/cache.c:41:29: error: There is an unknown macro here somewhere. Configuration is required. If C_YELLOW is a macro then please configure it. [unknownMacro]
+                printf("  " C_YELLOW "%s" C_RESET ": no cache found\n", argv[i]);
+                            ^
+4/34 files checked 26% done
+Checking src/checksum.c ...
+src/checksum.c:1:2: information: Include file: "lpm.h" not found. [missingInclude]
+#include "lpm.h"
+ ^
+src/checksum.c:10:40: error: There is an unknown macro here somewhere. Configuration is required. If C_RESET is a macro then please configure it. [unknownMacro]
+        fprintf(stderr, C_RED "error:" C_RESET
+                                       ^
+5/34 files checked 27% done
+Checking src/config.c ...
+src/config.c:1:2: information: Include file: "lpm.h" not found. [missingInclude]
+#include "lpm.h"
+ ^
+src/config.c:2:2: information: Include file: <ctype.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <ctype.h>
+ ^
+src/config.c:3:2: information: Include file: <stdarg.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <stdarg.h>
+ ^
+src/config.c:0:0: information: Limiting analysis of branches. Use --check-level=exhaustive to analyze all branches. [normalCheckLevelMaxBranches]
+
+^
+src/config.c:115:18: style: Local variable 'line' shadows outer variable [shadowVariable]
+            char line[1024];
+                 ^
+src/config.c:88:10: note: Shadowed variable
+    char line[1024];
+         ^
+src/config.c:115:18: note: Shadow local variable
+            char line[1024];
+                 ^
+src/config.c:76:11: style: Variable 'tok' can be declared as pointer to const [constVariablePointer]
+    char *tok = strtok(tmp, " ,");
+          ^
+src/config.c:122:23: style: Variable 'key' can be declared as pointer to const [constVariablePointer]
+                char *key = p, *val = eq + 1;
+                      ^
+6/34 files checked 29% done
+Checking src/db.c ...
+src/db.c:1:2: information: Include file: "lpm.h" not found. [missingInclude]
+#include "lpm.h"
+ ^
+src/db.c:0:0: information: Limiting analysis of branches. Use --check-level=exhaustive to analyze all branches. [normalCheckLevelMaxBranches]
+
+^
+src/db.c:105:18: style: Variable 'ent' can be declared as pointer to const [constVariablePointer]
+  struct dirent *ent;
+                 ^
+7/34 files checked 31% done
+Checking src/dep.c ...
+src/dep.c:1:2: information: Include file: "lpm.h" not found. [missingInclude]
+#include "lpm.h"
+ ^
+src/dep.c:348:17: error: There is an unknown macro here somewhere. Configuration is required. If C_BOLD is a macro then please configure it. [unknownMacro]
+    printf("  " C_BOLD "Packages (%d)" C_RESET, n_total);
+                ^
+8/34 files checked 35% done
+Checking src/download.c ...
+src/download.c:1:2: information: Include file: "lpm.h" not found. [missingInclude]
+#include "lpm.h"
+ ^
+src/download.c:2:2: information: Include file: <pthread.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <pthread.h>
+ ^
+src/download.c:3:2: information: Include file: <sys/ioctl.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <sys/ioctl.h>
+ ^
+src/download.c:54:37: error: There is an unknown macro here somewhere. Configuration is required. If C_RESET is a macro then please configure it. [unknownMacro]
+            printf(C_RED "[FAILED]" C_RESET "                              \n");
+                                    ^
+9/34 files checked 37% done
+Checking src/dryrun.c ...
+src/dryrun.c:8:2: information: Include file: "lpm.h" not found. [missingInclude]
+#include "lpm.h"
+ ^
+src/dryrun.c:9:2: information: Include file: <stddef.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <stddef.h>
+ ^
+src/dryrun.c:0:0: information: Limiting analysis of branches. Use --check-level=exhaustive to analyze all branches. [normalCheckLevelMaxBranches]
+
+^
+10/34 files checked 39% done
+Checking src/fix-musl.c ...
+src/fix-musl.c:14:2: information: Include file: "lpm.h" not found. [missingInclude]
+#include "lpm.h"
+ ^
+src/fix-musl.c:15:2: information: Include file: <sys/stat.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <sys/stat.h>
+ ^
+src/fix-musl.c:16:2: information: Include file: <ctype.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <ctype.h>
+ ^
+src/fix-musl.c:73:21: error: There is an unknown macro here somewhere. Configuration is required. If C_RED is a macro then please configure it. [unknownMacro]
+        printf("  " C_RED "[FATAL] " C_RESET "%-32s — %s\n", sym, note);
+                    ^
+11/34 files checked 42% done
+Checking src/key.c ...
+src/key.c:1:2: information: Include file: "lpm.h" not found. [missingInclude]
+#include "lpm.h"
+ ^
+src/key.c:0:0: information: Limiting analysis of branches. Use --check-level=exhaustive to analyze all branches. [normalCheckLevelMaxBranches]
+
+^
+12/34 files checked 43% done
+Checking src/libllpm/dep.c ...
+src/libllpm/dep.c:16:2: information: Include file: "llpm/dep.h" not found. [missingInclude]
+#include "llpm/dep.h"
+ ^
+src/libllpm/dep.c:17:2: information: Include file: "llpm/repo.h" not found. [missingInclude]
+#include "llpm/repo.h"
+ ^
+src/libllpm/dep.c:18:2: information: Include file: "llpm/error.h" not found. [missingInclude]
+#include "llpm/error.h"
+ ^
+src/libllpm/dep.c:19:2: information: Include file: <stdio.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <stdio.h>
+ ^
+src/libllpm/dep.c:20:2: information: Include file: <stdlib.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <stdlib.h>
+ ^
+src/libllpm/dep.c:21:2: information: Include file: <string.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <string.h>
+ ^
+src/libllpm/dep.c:22:2: information: Include file: <ctype.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <ctype.h>
+ ^
+src/libllpm/dep.c:0:0: information: Limiting analysis of branches. Use --check-level=exhaustive to analyze all branches. [normalCheckLevelMaxBranches]
+
+^
+src/libllpm/dep.c:109:50: style: Parameter 'h' can be declared as pointer to const [constParameterPointer]
+static int llpm_dep_installed_ver(llpm_handle_t *h, const char *name,
+                                                 ^
+src/libllpm/dep.c:132:39: style: Parameter 'h' can be declared as pointer to const [constParameterPointer]
+int llpm_dep_satisfied(llpm_handle_t *h, const llpm_dep_spec_t *spec) {
+                                      ^
+src/libllpm/dep.c:196:34: style: Parameter 'ctx' can be declared as pointer to const [constParameterPointer]
+static int dep_find_node(DepCtx *ctx, const char *name) {
+                                 ^
+src/libllpm/dep.c:414:37: style: Parameter 'h' can be declared as pointer to const [constParameterPointer]
+int llpm_dep_reverse(llpm_handle_t *h, const char *pkgname,
+                                    ^
+src/libllpm/dep.c:395:20: warning: Uninitialized variable: new_ops [uninitvar]
+    memcpy(t->ops, new_ops, n_new * sizeof(llpm_trans_op_t));
+                   ^
+src/libllpm/dep.c:361:38: note: Assuming condition is false
+    for (int oi = 0; oi < ctx.norder && n_new < LLPM_TRANS_OP_MAX; oi++) {
+                                     ^
+src/libllpm/dep.c:395:20: note: Uninitialized variable: new_ops
+    memcpy(t->ops, new_ops, n_new * sizeof(llpm_trans_op_t));
+                   ^
+src/libllpm/dep.c:303:30: style: Variable 'idx' is assigned a value that is never used. [unreadVariable]
+            if (idx < 0) idx = dep_add_node(&ctx, t->ops[i].pkg.name);
+                             ^
+13/34 files checked 46% done
+Checking src/libllpm/error.c ...
+src/libllpm/error.c:1:2: information: Include file: "llpm/error.h" not found. [missingInclude]
+#include "llpm/error.h"
+ ^
+14/34 files checked 46% done
+Checking src/libllpm/handle.c ...
+src/libllpm/handle.c:1:2: information: Include file: "llpm/handle.h" not found. [missingInclude]
+#include "llpm/handle.h"
+ ^
+src/libllpm/handle.c:3:2: information: Include file: <stdlib.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <stdlib.h>
+ ^
+src/libllpm/handle.c:4:2: information: Include file: <string.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <string.h>
+ ^
+15/34 files checked 47% done
+Checking src/libllpm/keyring.c ...
+src/libllpm/keyring.c:17:2: information: Include file: "llpm/keyring.h" not found. [missingInclude]
+#include "llpm/keyring.h"
+ ^
+src/libllpm/keyring.c:18:2: information: Include file: "llpm/error.h" not found. [missingInclude]
+#include "llpm/error.h"
+ ^
+src/libllpm/keyring.c:19:2: information: Include file: <stdio.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <stdio.h>
+ ^
+src/libllpm/keyring.c:20:2: information: Include file: <stdlib.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <stdlib.h>
+ ^
+src/libllpm/keyring.c:21:2: information: Include file: <string.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <string.h>
+ ^
+src/libllpm/keyring.c:22:2: information: Include file: <sys/stat.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <sys/stat.h>
+ ^
+src/libllpm/keyring.c:23:2: information: Include file: <unistd.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <unistd.h>
+ ^
+src/libllpm/keyring.c:24:2: information: Include file: <ctype.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <ctype.h>
+ ^
+src/libllpm/keyring.c:0:0: information: Limiting analysis of branches. Use --check-level=exhaustive to analyze all branches. [normalCheckLevelMaxBranches]
+
+^
+src/libllpm/keyring.c:395:32: style: Condition 'signer_fpr[0]' is always true [knownConditionTrueFalse]
+                     signer_fpr[0] ? signer_fpr : "unknown");
+                               ^
+src/libllpm/keyring.c:50:46: style: Parameter 'h' can be declared as pointer to const [constParameterPointer]
+static int ensure_keyring_dir(llpm_handle_t *h) {
+                                             ^
+16/34 files checked 50% done
+Checking src/libllpm/repo.c ...
+src/libllpm/repo.c:1:2: information: Include file: "llpm/repo.h" not found. [missingInclude]
+#include "llpm/repo.h"
+ ^
+src/libllpm/repo.c:3:2: information: Include file: <stdio.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <stdio.h>
+ ^
+src/libllpm/repo.c:4:2: information: Include file: <string.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <string.h>
+ ^
+src/libllpm/repo.c:0:0: information: Limiting analysis of branches. Use --check-level=exhaustive to analyze all branches. [normalCheckLevelMaxBranches]
+
+^
+src/libllpm/repo.c:93:15: style: Variable 'pkgname' can be declared as pointer to const [constVariablePointer]
+        char *pkgname = p;
+              ^
+src/libllpm/repo.c:121:19: style: Variable 'key' can be declared as pointer to const [constVariablePointer]
+            char *key = tok, *val = feq + 1;
+                  ^
+17/34 files checked 51% done
+Checking src/libllpm/trans.c ...
+src/libllpm/trans.c:1:2: information: Include file: "llpm/trans.h" not found. [missingInclude]
+#include "llpm/trans.h"
+ ^
+src/libllpm/trans.c:2:2: information: Include file: "llpm/handle.h" not found. [missingInclude]
+#include "llpm/handle.h"
+ ^
+src/libllpm/trans.c:3:2: information: Include file: "llpm/error.h" not found. [missingInclude]
+#include "llpm/error.h"
+ ^
+src/libllpm/trans.c:5:2: information: Include file: <stdlib.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <stdlib.h>
+ ^
+src/libllpm/trans.c:6:2: information: Include file: <stdio.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <stdio.h>
+ ^
+src/libllpm/trans.c:7:2: information: Include file: <string.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <string.h>
+ ^
+src/libllpm/trans.c:8:2: information: Include file: <unistd.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <unistd.h>
+ ^
+src/libllpm/trans.c:9:2: information: Include file: <errno.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <errno.h>
+ ^
+src/libllpm/trans.c:10:2: information: Include file: <sys/stat.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <sys/stat.h>
+ ^
+src/libllpm/trans.c:0:0: information: Limiting analysis of branches. Use --check-level=exhaustive to analyze all branches. [normalCheckLevelMaxBranches]
+
+^
+18/34 files checked 52% done
+Checking src/lpkg.c ...
+src/lpkg.c:24:2: information: Include file: "lpm.h" not found. [missingInclude]
+#include "lpm.h"
+ ^
+src/lpkg.c:25:2: information: Include file: <ctype.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <ctype.h>
+ ^
+src/lpkg.c:26:2: information: Include file: <time.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <time.h>
+ ^
+src/lpkg.c:177:24: error: There is an unknown macro here somewhere. Configuration is required. If C_RESET is a macro then please configure it. [unknownMacro]
+    printf(C_CYAN "::" C_RESET " Packing " C_BOLD "%s-%s-%s" C_RESET
+                       ^
+19/34 files checked 62% done
+Checking src/main.c ...
+src/main.c:1:2: information: Include file: "lpm.h" not found. [missingInclude]
+#include "lpm.h"
+ ^
+src/main.c:2:2: information: Include file: "llpm/llpm.h" not found. [missingInclude]
+#include "llpm/llpm.h"
+ ^
+src/main.c:3:2: information: Include file: <signal.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <signal.h>
+ ^
+src/main.c:127:28: error: There is an unknown macro here somewhere. Configuration is required. If C_RESET is a macro then please configure it. [unknownMacro]
+            C_RED "error:" C_RESET " unknown package subcommand '%s'\n"
+                           ^
+20/34 files checked 66% done
+Checking src/merge.c ...
+src/merge.c:1:2: information: Include file: "lpm.h" not found. [missingInclude]
+#include "lpm.h"
+ ^
+src/merge.c:2:2: information: Include file: <dirent.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <dirent.h>
+ ^
+src/merge.c:26:28: error: There is an unknown macro here somewhere. Configuration is required. If C_RESET is a macro then please configure it. [unknownMacro]
+            C_RED "error:" C_RESET
+                           ^
+21/34 files checked 66% done
+Checking src/pkgbuild.c ...
+src/pkgbuild.c:1:2: information: Include file: "lpm.h" not found. [missingInclude]
+#include "lpm.h"
+ ^
+src/pkgbuild.c:0:0: information: Limiting analysis of branches. Use --check-level=exhaustive to analyze all branches. [normalCheckLevelMaxBranches]
+
+^
+22/34 files checked 67% done
+Checking src/pkgbuild_parser.c ...
+src/pkgbuild_parser.c:25:2: information: Include file: "lpm.h" not found. [missingInclude]
+#include "lpm.h"
+ ^
+src/pkgbuild_parser.c:26:2: information: Include file: <sys/stat.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <sys/stat.h>
+ ^
+src/pkgbuild_parser.c:27:2: information: Include file: <fcntl.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <fcntl.h>
+ ^
+src/pkgbuild_parser.c:28:2: information: Include file: <ctype.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <ctype.h>
+ ^
+src/pkgbuild_parser.c:0:0: information: Limiting analysis of branches. Use --check-level=exhaustive to analyze all branches. [normalCheckLevelMaxBranches]
+
+^
+src/pkgbuild_parser.c:148:11: style: Variable 'p' can be declared as pointer to const [constVariablePointer]
+    char *p = open + 1;
+          ^
+src/pkgbuild_parser.c:229:19: style: Variable 'eq_pos' can be declared as pointer to const [constVariablePointer]
+            char *eq_pos   = strchr(p, '=');
+                  ^
+src/pkgbuild_parser.c:230:19: style: Variable 'open_pos' can be declared as pointer to const [constVariablePointer]
+            char *open_pos = strchr(p, '(');
+                  ^
+src/pkgbuild_parser.c:256:15: style: Variable 'val' can be declared as pointer to const [constVariablePointer]
+        char *val = lstrip(eq + 1); /* skip '=' then any leading spaces */
+              ^
+23/34 files checked 72% done
+Checking src/profile.c ...
+src/profile.c:1:2: information: Include file: "lpm.h" not found. [missingInclude]
+#include "lpm.h"
+ ^
+src/profile.c:2:2: information: Include file: <dirent.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <dirent.h>
+ ^
+src/profile.c:9:20: style: Variable 'e' can be declared as pointer to const [constVariablePointer]
+    struct dirent *e;
+                   ^
+24/34 files checked 72% done
+Checking src/recommend.c ...
+src/recommend.c:15:2: information: Include file: "lpm.h" not found. [missingInclude]
+#include "lpm.h"
+ ^
+src/recommend.c:71:17: error: There is an unknown macro here somewhere. Configuration is required. If C_CYAN is a macro then please configure it. [unknownMacro]
+    printf("\n" C_CYAN "::" C_RESET
+                ^
+25/34 files checked 73% done
+Checking src/repo.c ...
+src/repo.c:1:2: information: Include file: "llpm/repo.h" not found. [missingInclude]
+#include "llpm/repo.h"
+ ^
+src/repo.c:2:2: information: Include file: "llpm/dep.h" not found. [missingInclude]
+#include "llpm/dep.h"
+ ^
+src/repo.c:4:2: information: Include file: <stdio.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <stdio.h>
+ ^
+src/repo.c:5:2: information: Include file: <string.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <string.h>
+ ^
+26/34 files checked 74% done
+Checking src/safety.c ...
+src/safety.c:1:2: information: Include file: "lpm.h" not found. [missingInclude]
+#include "lpm.h"
+ ^
+src/safety.c:2:2: information: Include file: "llpm/handle.h" not found. [missingInclude]
+#include "llpm/handle.h"
+ ^
+src/safety.c:3:2: information: Include file: "llpm/keyring.h" not found. [missingInclude]
+#include "llpm/keyring.h"
+ ^
+src/safety.c:4:2: information: Include file: <stdio.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <stdio.h>
+ ^
+src/safety.c:5:2: information: Include file: <stdlib.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <stdlib.h>
+ ^
+src/safety.c:6:2: information: Include file: <string.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <string.h>
+ ^
+src/safety.c:7:2: information: Include file: <unistd.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <unistd.h>
+ ^
+src/safety.c:8:2: information: Include file: <sys/stat.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <sys/stat.h>
+ ^
+src/safety.c:9:2: information: Include file: <sys/statvfs.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <sys/statvfs.h>
+ ^
+src/safety.c:10:2: information: Include file: <fcntl.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <fcntl.h>
+ ^
+src/safety.c:11:2: information: Include file: <errno.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <errno.h>
+ ^
+src/safety.c:12:2: information: Include file: <time.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <time.h>
+ ^
+src/safety.c:13:2: information: Include file: <dirent.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <dirent.h>
+ ^
+src/safety.c:318:37: error: There is an unknown macro here somewhere. Configuration is required. If C_RESET is a macro then please configure it. [unknownMacro]
+                C_YELLOW "warning:" C_RESET
+                                    ^
+27/34 files checked 78% done
+Checking src/search.c ...
+src/search.c:14:2: information: Include file: "lpm.h" not found. [missingInclude]
+#include "lpm.h"
+ ^
+src/search.c:493:45: error: There is an unknown macro here somewhere. Configuration is required. If C_RESET is a macro then please configure it. [unknownMacro]
+            fprintf(stderr, C_RED "error: " C_RESET
+                                            ^
+28/34 files checked 83% done
+Checking src/sha256.c ...
+src/sha256.c:9:2: information: Include file: "lpm.h" not found. [missingInclude]
+#include "lpm.h"
+ ^
+src/sha256.c:10:2: information: Include file: <stdint.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <stdint.h>
+ ^
+src/sha256.c:39:30: style: The scope of the variable 't1' can be reduced. [variableScope]
+    uint32_t a,b,c,d,e,f,g,h,t1,t2,m[64];
+                             ^
+src/sha256.c:39:33: style: The scope of the variable 't2' can be reduced. [variableScope]
+    uint32_t a,b,c,d,e,f,g,h,t1,t2,m[64];
+                                ^
+29/34 files checked 84% done
+Checking src/src_search.c ...
+src/src_search.c:1:2: information: Include file: "lpm.h" not found. [missingInclude]
+#include "lpm.h"
+ ^
+src/src_search.c:25:15: error: There is an unknown macro here somewhere. Configuration is required. If C_GREEN is a macro then please configure it. [unknownMacro]
+        ? " " C_GREEN "[installed]" C_RESET : "";
+              ^
+30/34 files checked 87% done
+Checking src/sync.c ...
+src/sync.c:23:2: information: Include file: "lpm.h" not found. [missingInclude]
+#include "lpm.h"
+ ^
+src/sync.c:24:2: information: Include file: <pthread.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <pthread.h>
+ ^
+src/sync.c:25:2: information: Include file: <sys/statvfs.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <sys/statvfs.h>
+ ^
+src/sync.c:26:2: information: Include file: <ctype.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <ctype.h>
+ ^
+src/sync.c:650:9: error: There is an unknown macro here somewhere. Configuration is required. If C_YELLOW is a macro then please configure it. [unknownMacro]
+        CHECK_CANCEL(suy_done);
+        ^
+31/34 files checked 93% done
+Checking src/transaction.c ...
+src/transaction.c:1:2: information: Include file: "lpm.h" not found. [missingInclude]
+#include "lpm.h"
+ ^
+src/transaction.c:2:2: information: Include file: <stdio.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <stdio.h>
+ ^
+src/transaction.c:3:2: information: Include file: <stdlib.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <stdlib.h>
+ ^
+src/transaction.c:4:2: information: Include file: <string.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <string.h>
+ ^
+src/transaction.c:5:2: information: Include file: <unistd.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <unistd.h>
+ ^
+src/transaction.c:6:2: information: Include file: <errno.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <errno.h>
+ ^
+32/34 files checked 94% done
+Checking src/util.c ...
+src/util.c:1:2: information: Include file: "lpm.h" not found. [missingInclude]
+#include "lpm.h"
+ ^
+src/util.c:2:2: information: Include file: <stdarg.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <stdarg.h>
+ ^
+src/util.c:3:2: information: Include file: <ctype.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <ctype.h>
+ ^
+src/util.c:4:2: information: Include file: <sys/statvfs.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <sys/statvfs.h>
+ ^
+src/util.c:5:2: information: Include file: <time.h> not found. Please note: Standard library headers do not need to be provided to get proper results. [missingIncludeSystem]
+#include <time.h>
+ ^
+src/util.c:253:17: error: There is an unknown macro here somewhere. Configuration is required. If C_GRAY is a macro then please configure it. [unknownMacro]
+    printf("  " C_GRAY "[%d/%d]" C_RESET " %-38s ", slot, total, name);
+                ^
+33/34 files checked 96% done
+Checking src/verify.c ...
+src/verify.c:23:2: information: Include file: "lpm.h" not found. [missingInclude]
+#include "lpm.h"
+ ^
+src/verify.c:161:43: error: There is an unknown macro here somewhere. Configuration is required. If C_RESET is a macro then please configure it. [unknownMacro]
+        printf(C_YELLOW "Verifying %s..." C_RESET "\n\n", pkgname);
+                                          ^
+34/34 files checked 100% done
+src/buildmeta.c:18:5: style: The function 'buildmeta_save' is never used. [unusedFunction]
+int buildmeta_save(const char *pkgname, const BuildMeta *m) {
+    ^
+src/buildmeta.c:49:5: style: The function 'buildmeta_load' is never used. [unusedFunction]
+int buildmeta_load(const char *pkgname, BuildMeta *m) {
+    ^
+src/buildmeta.c:85:6: style: The function 'buildmeta_collect' is never used. [unusedFunction]
+void buildmeta_collect(const char *pkgname, const char *pkgver,
+     ^
+src/config.c:133:5: style: The function 'lpm_config_is_critical' is never used. [unusedFunction]
+int lpm_config_is_critical(const LpmConfig *cfg, const char *pkgname) {
+    ^
+src/config.c:139:5: style: The function 'lpm_config_is_ignored' is never used. [unusedFunction]
+int lpm_config_is_ignored(const LpmConfig *cfg, const char *pkgname) {
+    ^
+src/config.c:145:6: style: The function 'lpm_config_dump' is never used. [unusedFunction]
+void lpm_config_dump(const LpmConfig *cfg) {
+     ^
+src/db.c:168:6: style: The function 'db_files_save' is never used. [unusedFunction]
+void db_files_save(const char *pkgname, const char *pkgdir) {
+     ^
+src/db.c:200:5: style: The function 'db_files_remove' is never used. [unusedFunction]
+int db_files_remove(const char *pkgname) {
+    ^
+src/db.c:242:5: style: The function 'db_init' is never used. [unusedFunction]
+int db_init(void) {
+    ^
+src/db.c:341:5: style: The function 'db_query_owner' is never used. [unusedFunction]
+int db_query_owner(const char *filepath, char *out_name, size_t sz) {
+    ^
+src/db.c:373:5: style: The function 'db_list_files' is never used. [unusedFunction]
+int db_list_files(const char *name) {
+    ^
+src/db.c:395:5: style: The function 'db_check_integrity' is never used. [unusedFunction]
+int db_check_integrity(const char *name) {
+    ^
+src/dryrun.c:16:6: style: The function 'dryrun_print' is never used. [unusedFunction]
+void dryrun_print(const DryRun *dr) {
+     ^
+src/dryrun.c:88:5: style: The function 'dryrun_build' is never used. [unusedFunction]
+int dryrun_build(char **pkgnames, int npkgs, DryRun *dr) {
+    ^
+src/dryrun.c:162:5: style: The function 'dryrun_remove' is never used. [unusedFunction]
+int dryrun_remove(char **pkgnames, int npkgs, DryRun *dr) {
+    ^
+src/key.c:39:6: style: The function 'cmd_key' is never used. [unusedFunction]
+void cmd_key(int argc, char **argv) {
+     ^
+src/libllpm/dep.c:284:5: style: The function 'llpm_dep_resolve' is never used. [unusedFunction]
+int llpm_dep_resolve(llpm_handle_t *h, llpm_trans_t *t) {
+    ^
+src/libllpm/dep.c:414:5: style: The function 'llpm_dep_reverse' is never used. [unusedFunction]
+int llpm_dep_reverse(llpm_handle_t *h, const char *pkgname,
+    ^
+src/libllpm/error.c:3:13: style: The function 'llpm_strerror' is never used. [unusedFunction]
+const char *llpm_strerror(llpm_errno_t err) {
+            ^
+src/libllpm/handle.c:28:16: style: The function 'llpm_initialize' is never used. [unusedFunction]
+llpm_handle_t *llpm_initialize(const char *root, const char *dbpath, llpm_errno_t *err) {
+               ^
+src/libllpm/handle.c:62:5: style: The function 'llpm_release' is never used. [unusedFunction]
+int llpm_release(llpm_handle_t *h) {
+    ^
+src/libllpm/handle.c:71:14: style: The function 'llpm_errno' is never used. [unusedFunction]
+llpm_errno_t llpm_errno(const llpm_handle_t *h) {
+             ^
+src/libllpm/handle.c:82:6: style: The function 'llpm_handle_set_db_ops' is never used. [unusedFunction]
+void llpm_handle_set_db_ops(llpm_handle_t *h,
+     ^
+src/libllpm/keyring.c:200:5: style: The function 'llpm_keyring_recv' is never used. [unusedFunction]
+int llpm_keyring_recv(llpm_handle_t *h, const char *keyid) {
+    ^
+src/libllpm/keyring.c:243:5: style: The function 'llpm_keyring_import' is never used. [unusedFunction]
+int llpm_keyring_import(llpm_handle_t *h, const char *filepath) {
+    ^
+src/libllpm/keyring.c:265:5: style: The function 'llpm_keyring_set_trust' is never used. [unusedFunction]
+int llpm_keyring_set_trust(llpm_handle_t *h, const char *fingerprint,
+    ^
+src/libllpm/keyring.c:300:19: style: The function 'llpm_keyring_list' is never used. [unusedFunction]
+const llpm_key_t *llpm_keyring_list(const llpm_handle_t *h, int *out_n) {
+                  ^
+src/libllpm/keyring.c:321:5: style: The function 'llpm_keyring_verify' is never used. [unusedFunction]
+int llpm_keyring_verify(llpm_handle_t *h, const char *filepath,
+    ^
+src/libllpm/keyring.c:412:5: style: The function 'llpm_keyring_delete' is never used. [unusedFunction]
+int llpm_keyring_delete(llpm_handle_t *h, const char *fingerprint) {
+    ^
+src/libllpm/repo.c:22:5: style: The function 'llpm_register_repo' is never used. [unusedFunction]
+int llpm_register_repo(llpm_handle_t *h, const char *name, const char *url) {
+    ^
+src/libllpm/repo.c:47:5: style: The function 'llpm_sync_databases' is never used. [unusedFunction]
+int llpm_sync_databases(llpm_handle_t *h, int force) {
+    ^
+src/libllpm/trans.c:13:15: style: The function 'llpm_trans_init' is never used. [unusedFunction]
+llpm_trans_t *llpm_trans_init(llpm_handle_t *h, int flags) {
+              ^
+src/libllpm/trans.c:24:5: style: The function 'llpm_trans_add_remove' is never used. [unusedFunction]
+int llpm_trans_add_remove(llpm_trans_t *t, const char *name) {
+    ^
+src/libllpm/trans.c:33:5: style: The function 'llpm_trans_prepare' is never used. [unusedFunction]
+int llpm_trans_prepare(llpm_trans_t *t) {
+    ^
+src/libllpm/trans.c:61:5: style: The function 'llpm_trans_commit' is never used. [unusedFunction]
+int llpm_trans_commit(llpm_trans_t *t) {
+    ^
+src/libllpm/trans.c:99:5: style: The function 'llpm_trans_release' is never used. [unusedFunction]
+int llpm_trans_release(llpm_trans_t *t) {
+    ^
+src/pkgbuild.c:29:5: style: The function 'dep_satisfied' is never used. [unusedFunction]
+int dep_satisfied(const char *spec) {
+    ^
+src/pkgbuild.c:78:7: style: The function 'reverse_deps' is never used. [unusedFunction]
+char *reverse_deps(const char *target) {
+      ^
+src/pkgbuild_parser.c:489:6: style: The function 'pkgbuild_invalidate_cache' is never used. [unusedFunction]
+void pkgbuild_invalidate_cache(const char *pkgname) {
+     ^
+src/profile.c:4:6: style: The function 'cmd_profile' is never used. [unusedFunction]
+void cmd_profile(int argc, char **argv) {
+     ^
+src/profile.c:46:6: style: The function 'cmd_doctor' is never used. [unusedFunction]
+void cmd_doctor(int argc, char **argv) {
+     ^
+src/transaction.c:9:14: style: The function 'tx_new' is never used. [unusedFunction]
+Transaction *tx_new(void) {
+             ^
+src/transaction.c:18:6: style: The function 'tx_free' is never used. [unusedFunction]
+void tx_free(Transaction *tx) {
+     ^
+src/transaction.c:27:5: style: The function 'tx_add_install' is never used. [unusedFunction]
+int tx_add_install(Transaction *tx, Package *pkg) {
+    ^
+src/transaction.c:34:5: style: The function 'tx_add_remove' is never used. [unusedFunction]
+int tx_add_remove(Transaction *tx, Package *pkg) {
+    ^
+src/transaction.c:42:5: style: The function 'tx_commit' is never used. [unusedFunction]
+int tx_commit(Transaction *tx, const char *root) {
+    ^
+src/config.c:8:6: style: The function 'lpm_config_defaults' should have static linkage since it is not used outside of its translation unit. [staticFunction]
+void lpm_config_defaults(LpmConfig *cfg) {
+     ^
+src/db.c:48:6: style: The function 'db_add' should have static linkage since it is not used outside of its translation unit. [staticFunction]
+void db_add(const char *pkgname, const char *ver, const char *rel) {
+     ^
+src/db.c:60:6: style: The function 'db_remove' should have static linkage since it is not used outside of its translation unit. [staticFunction]
+void db_remove(const char *pkgname) {
+     ^
+src/db.c:294:5: style: The function 'db_list_all' should have static linkage since it is not used outside of its translation unit. [staticFunction]
+int db_list_all(InstalledPkg **out, int *count) {
+    ^
+src/libllpm/dep.c:78:5: style: The function 'llpm_dep_parse_spec' should have static linkage since it is not used outside of its translation unit. [staticFunction]
+int llpm_dep_parse_spec(const char *spec, llpm_dep_spec_t *out) {
+    ^
+src/libllpm/dep.c:132:5: style: The function 'llpm_dep_satisfied' should have static linkage since it is not used outside of its translation unit. [staticFunction]
+int llpm_dep_satisfied(llpm_handle_t *h, const llpm_dep_spec_t *spec) {
+    ^
+src/libllpm/keyring.c:84:5: style: The function 'llpm_keyring_load' should have static linkage since it is not used outside of its translation unit. [staticFunction]
+int llpm_keyring_load(llpm_handle_t *h) {
+    ^
+src/libllpm/keyring.c:160:5: style: The function 'llpm_keyring_save' should have static linkage since it is not used outside of its translation unit. [staticFunction]
+int llpm_keyring_save(llpm_handle_t *h) {
+    ^
+src/libllpm/keyring.c:283:19: style: The function 'llpm_keyring_find' should have static linkage since it is not used outside of its translation unit. [staticFunction]
+const llpm_key_t *llpm_keyring_find(const llpm_handle_t *h,
+                  ^
+src/transaction.c:86:5: style: The function 'tx_rollback' should have static linkage since it is not used outside of its translation unit. [staticFunction]
+int tx_rollback(Transaction *tx, const char *root) {
+    ^
+nofile:0:0: information: Active checkers: There was critical errors (use --checkers-report=<filename> to see details) [checkersReport]
+
