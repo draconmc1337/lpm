@@ -216,8 +216,11 @@ static int lpkg_pack_one(Package *pkg, const char *pbfile, const char *pkgdir,
 
     char pack_cmd[MAX_CMD];
     if (have_bsdtar) {
+        /* -cf (not -czf): --zstd selects the compressor; combining -z (gzip)
+         * with --zstd makes bsdtar abort with "Can't specify both -< and -z",
+         * which failed every .lpkg pack on bsdtar-equipped hosts. */
         snprintf(pack_cmd, sizeof(pack_cmd),
-            "bsdtar -C '%s' -czf '%s' --zstd .",
+            "bsdtar -C '%s' -cf '%s' --zstd .",
             pkgdir, datatmp);
     } else {
         snprintf(pack_cmd, sizeof(pack_cmd),
@@ -459,8 +462,7 @@ void cmd_build(int argc, char **argv) {
         exit(1);
     }
 
-    LpmConfig cfg;
-    lpm_config_load(LPM_CONF_FILE, &cfg);
+    /* config comes from g_cfg (populated once by lpm_config_init in main) */
 
     for (int i = 0; i < npkgs; i++) {
         const char *pkgname = pkgs[i];
@@ -516,7 +518,7 @@ void cmd_build(int argc, char **argv) {
         /* Runs build() + package(), stages into ws/pkg, then returns
          * early because pack_only=1 — see the pack_only block in
          * do_build_install() (build.c). Build failures exit() directly. */
-        do_build_install(&pkg, pbfile, &cfg, i, npkgs, &flags);
+        do_build_install(&pkg, pbfile, &g_cfg, i, npkgs, &flags);
         if (g_cancel) return;
 
         char pkgdir[MAX_STR + 8];

@@ -1,0 +1,231 @@
+lpm(1)
+======
+:doctype: manpage
+:man manual: lpm Manual
+:man source: lpm {revnumber}
+:leveloffset: 1
+
+NAME
+----
+lpm - Lotus Package Manager
+
+
+SYNOPSIS
+--------
+'lpm' <command> [options] [package(s)]
+
+
+DESCRIPTION
+-----------
+'lpm' is the package manager for Lotus Linux. It installs, removes, upgrades,
+and queries binary (`.lpkg`) and source packages built from LPDF v1
+*PKGBUILD*(5) files, resolving dependencies through a DAG resolver and applying
+filesystem changes through a journaled transaction layer that rolls back on
+failure.
+
+'lpm' understands exactly one configuration file, `/etc/lpm/lpm.conf`
+(see *lpm.conf*(5)), and one package-definition format, LPDF v1 (see
+*PKGBUILD*(5)).
+
+Run 'lpm' <command> '--help' for a short summary of any command.
+
+
+COMMANDS
+--------
+'lpm' dispatches on the first argument, which must be one of the commands
+below. Only one command may be given at a time.
+
+
+=== Transaction commands ===
+
+These share one output shape: resolve, show a package table, confirm, execute
+with a step counter, then print 'Transaction complete.' They require root
+(via 'doas' or 'sudo').
+
+'install' <package(s)>::
+	Resolve dependencies for the named packages, show the transaction
+	summary, and after confirmation fetch, build (source packages) or
+	download-and-verify (binary packages) and install each one.
+	Already-installed explicit targets are reinstalled.
+
+'remove' <package(s)>::
+	Remove installed packages. With '-Rs'/'--recursive', also remove
+	dependencies installed as dependencies that no longer satisfy any
+	dependency. Blocked, unless '--force', when other installed packages
+	depend on a target.
+
+'upgrade' [package(s)]::
+	With no arguments, synchronise the package databases and upgrade every
+	installed package with a newer version available. With arguments, check
+	and upgrade only the named packages. Honours 'IgnorePkg' from
+	*lpm.conf*(5).
+
+'bootstrap' '-C' <target> [package(s)]::
+	Install a base system into <target>: create the FHS skeleton, write
+	stub configuration, synchronise databases, then install the named
+	packages (or the built-in base set). Also invoked as 'pacstrap'.
+
+
+=== Non-transaction commands ===
+
+'update'::
+	Synchronise the package databases from the configured repositories. Not
+	a transaction: no summary table, no confirmation prompt.
+
+'search' <term>::
+	Search available packages (name and description) in the synced
+	databases, falling back to the local PKGBUILD cache.
+
+'info' <package(s)>::
+	Show detailed information about package(s): name, version, repository,
+	architecture, type, license, dependencies, and sizes.
+
+'deps' [package(s)]::
+	Print the full dependency tree for the named package(s).
+
+'list'::
+	List installed packages. Accepts '--count' to print only the count.
+
+'owns' <path>::
+	Report which installed package owns the given file path.
+
+'files' <package>::
+	List the files owned by an installed package.
+
+'orphans'::
+	List packages installed as dependencies that no longer satisfy any
+	dependency (candidates for 'remove -Rs').
+
+'verify' [package(s)]::
+	Verify installed package integrity against recorded metadata: existence,
+	checksums, permissions, ownership. Read-only -- 'verify' never repairs
+	or rewrites files. With '--deps', check dependency consistency instead.
+
+'test' <package(s)>::
+	Run a package's 'check()' test suite from its PKGBUILD.
+
+'audit'::
+	Show the transaction history (the audit log). With '--raw' (back-compat
+	alias '--log') dump the unformatted log; with '--health' show a quick
+	orphan/update summary.
+
+'cache' [clean] [package(s)]::
+	With no subcommand, show build-cache statistics. With 'clean', remove
+	cached build data (optionally limited to named packages) after
+	confirmation.
+
+'key' <subcommand> [args]::
+	Manage the signing keyring. Subcommands: 'init', 'genid', 'list',
+	'recv' <keyid>, 'import' <file>, 'trust' <keyid>.
+
+'package' <subcommand> [args]::
+	Low-level package tools. Subcommands: 'build' <pkg>, 'pack' <pkg>,
+	'install' <pkg.lpkg|name>, 'query' [pkg.lpkg|name], 'extract'
+	<pkg.lpkg|name>, 'verify' <pkg.lpkg|name>, 'remove' <pkg.lpkg|name>.
+
+'repo' <subcommand>::
+	Repository management. Currently a placeholder ('list', 'add', 'remove',
+	'sync' are reserved, not yet implemented).
+
+
+'-V', '--version'::
+	Show 'lpm' and 'libllpm' versions and exit.
+
+'-h', '--help'::
+	Show usage. 'lpm' <command> '--help' shows command-specific usage.
+
+
+OPTIONS
+-------
+These are recognised by the transaction commands and parsed from anywhere in
+their argument list.
+
+'--force'::
+	Override file- and package-conflict checks and allow removing
+	'CriticalPkg' packages.
+
+'--no-confirm'::
+	Run non-interactively: never prompt before executing a transaction.
+
+'--dry-run', '-n'::
+	Simulate the transaction and print exactly what would change, with no
+	side effects.
+
+'--no-check'::
+	Skip the 'check()' phase when building source packages.
+
+'--no-recommended'::
+	Do not offer 'recommends' soft-dependencies during 'install'.
+
+'--strict'::
+	Treat a failing 'check()' phase as fatal during a source build.
+
+'-Rs', '--recursive'::
+	With 'remove': also remove now-unused dependencies.
+
+'--debug'[='N']::
+	Enable debug output to stderr. 'N' is '1' (dep resolution, cache,
+	mirrors), '2' (URLs, checksums), or '3' (function trace). '--debug' with
+	no value is level 1. 'LPM_DEBUG' sets the same baseline; '--debug=N'
+	overrides it.
+
+
+FILES
+-----
+'/etc/lpm/lpm.conf'::
+	Main configuration file. See *lpm.conf*(5).
+
+'/var/lib/lpm/db'::
+	Synchronised package databases (one file per repository).
+
+'/var/lib/lpm/files'::
+	Per-package file-ownership records ('files.list', 'files.meta') used by
+	'verify', 'owns', and 'files'.
+
+'/var/cache/lpm'::
+	Build workspaces, downloaded sources, and built package caches
+	('BUILDDIR' / 'PKGDEST' / 'SRCDEST').
+
+'/var/log/lpm'::
+	Per-package build logs.
+
+
+EXIT CODES
+----------
+'0'::
+	Success.
+
+'1'::
+	Generic failure -- bad usage, unmet dependency, conflict, permission
+	denied, sync or transaction aborted.
+
+'130'::
+	The operation was interrupted (SIGINT/SIGTERM/SIGHUP). The transaction
+	journal is rolled back and the lock released.
+
+
+NOTES
+-----
+'lpm' takes an exclusive lock for write operations; only one instance may run
+at a time. Interrupting a running transaction prints 'Interrupted.' and
+unwinds any partial changes.
+
+Error conditions use a fixed vocabulary -- for example 'Package not found:
+foo', 'Package is not installed: foo', 'No packages to upgrade.', 'No
+orphaned packages.', 'Repository sync failed.', 'Signature verification
+failed.', 'Transaction aborted.', 'Insufficient disk space.', 'Interrupted.'
+
+
+SEE ALSO
+--------
+*lpm.conf*(5), *PKGBUILD*(5)
+
+
+BUGS
+----
+Upstream tracker: <https://github.com/draconmc1337/lpm>
+
+
+AUTHORS
+-------
+See the 'LICENSE' and 'CHANGELOG.md' in the source tree.

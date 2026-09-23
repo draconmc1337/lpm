@@ -45,17 +45,16 @@ void cmd_profile(int argc, char **argv) {
 
 void cmd_doctor(int argc, char **argv) {
   (void)argc; (void)argv;
-  LpmConfig cfg;
-  lpm_config_load(LPM_CONF_FILE, &cfg);
-  printf("[OK] Profile: %s\n", cfg.profile[0] ? cfg.profile : "generic");
-  if (strstr(cfg.cflags, "-march=native"))
+  /* config comes from g_cfg (populated once by lpm_config_init in main) */
+  printf("[OK] Profile: %s\n", g_cfg.profile[0] ? g_cfg.profile : "generic");
+  if (strstr(g_cfg.cflags, "-march=native"))
     printf("[WARN] Using -march=native\n");
   else
     printf("[OK] CFLAGS sane\n");
-  if (strstr(cfg.cflags, "-Ofast"))
+  if (strstr(g_cfg.cflags, "-Ofast"))
     printf("[WARN] -Ofast may break packages\n");
-  long free_kb = util_disk_free(cfg.build_dir[0] ? cfg.build_dir : LPM_BUILD_DIR);
+  long free_kb = util_disk_free(g_cfg.build_dir[0] ? g_cfg.build_dir : LPM_BUILD_DIR);
   if (free_kb < 0) printf("[WARN] Unable to read disk space\n");
   else printf("[OK] Disk space: %ld KB\n", free_kb);
-  if (cfg.jobs > 0) printf("[OK] Parallel jobs: %d\n", cfg.jobs);
+  if (g_cfg.jobs > 0) printf("[OK] Parallel jobs: %d\n", g_cfg.jobs);
 }

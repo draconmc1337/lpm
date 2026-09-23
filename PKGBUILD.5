@@ -1,0 +1,345 @@
+'\" t
+.\"     Title: pkgbuild
+.\"    Author: [see the "AUTHOR(S)" section]
+.\" Generator: Asciidoctor 2.0.26
+.\"      Date: 2026-09-09
+.\"    Manual: lpm Manual
+.\"    Source: lpm 2.0.0
+.\"  Language: English
+.\"
+.TH "PKGBUILD" "5" "2026-09-09" "lpm 2.0.0" "lpm Manual"
+.ie \n(.g .ds Aq \(aq
+.el       .ds Aq '
+.ss \n[.ss] 0
+.nh
+.ad l
+.de URL
+\fI\\$2\fP <\\$1>\\$3
+..
+.als MTO URL
+.if \n[.g] \{\
+.  mso www.tmac
+.  am URL
+.    ad l
+.  .
+.  am MTO
+.    ad l
+.  .
+.  LINKSTYLE blue R < >
+.\}
+.SH "NAME"
+PKGBUILD \- Lotus Package Definition File (LPDF v1)
+.SS "DESCRIPTION"
+.sp
+A \fIPKGBUILD\fP is the file \fBlpm\fP(1) builds a package from. Lotus uses a single
+definition format \(em \fILPDF v1\fP \(em with no legacy syntax, no fallback format,
+and no migration path: a PKGBUILD that does not follow this spec simply fails
+to parse.
+.sp
+The file is a bash script. \fIlpm\fP reads its fields with a fast native C parser
+first; \fIbash\fP is only actually executed for the \fIbuild()\fP, \fIcheck()\fP, and
+\fIpackage()\fP functions (and as a fallback parser if the fast parser cannot read
+the file).
+.sp
+Canonical key style is \fIkey = "value"\fP (spaces around \fI=\fP). \fIkey="value"\fP is
+also accepted but is not the documented form.
+.sp
+The PKGBUILD for a package named \fIfoo\fP is stored on disk as \fIpkgbuild_foo\fP.
+.SS "FILE RULES"
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.  sp -1
+.  IP \(bu 2.3
+.\}
+Comments run from \fI#\fP to end of line, as in bash.
+.RE
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.  sp -1
+.  IP \(bu 2.3
+.\}
+\fI$\f(CR{\fPpkgver}\fP and \fI$\f(CR{\fPpkgname}\fP may be used inside string values and
+array elements, expanded against values already defined \fIearlier\fP in the same
+file. Forward references do not work.
+.RE
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.  sp -1
+.  IP \(bu 2.3
+.\}
+Field order does not matter to the parser, except that a variable must be
+assigned before another value expands it with \fI$\f(CR{\fP.\|.\|.}\fP.
+.RE
+.SS "SCALAR FIELDS"
+.sp
+\fIpkgname\fP (required)
+.RS 4
+Package name. Lowercase ASCII \fIa\-z\fP, digits, \fI\-\fP and \fI_\fP only; must start
+with a letter or digit. \fIlpm\fP matches dependency names with a
+case\-sensitive \fIstrcmp()\fP, so "Foo" and "foo" are unrelated and a
+mis\-cased name silently never resolves.
+.RE
+.sp
+\fIpkgver\fP (required)
+.RS 4
+Upstream version, and nothing else. Digits, letters, \fI.\fP and \fI\-\fP only. \fINo\fP
+\fIv\fP/\fIV\fP prefix (strip \fIv1.2.2\fP to \fI1.2.2\fP): \fIversion_compare()\fP splits on
+\fI.\fP and \fI\-\fP and a stray \fIv\fP breaks the comparison. Epochs are supported as
+\fIepoch:version\fP (e.g. \fI2:1.2.2\fP) and compared numerically first; use only
+when upstream\(cqs scheme breaks ordering.
+.RE
+.sp
+\fIpkgrel\fP (required)
+.RS 4
+Packaging revision \(em a positive integer as a string ("1", "2", .\|.\|.); no
+decimals, letters, or leading zeroes. Bump this (not \fIpkgver\fP) when you
+change the PKGBUILD itself; reset to "1" when \fIpkgver\fP changes.
+.RE
+.sp
+\fIpkgdesc\fP (recommended)
+.RS 4
+One\-line description. No trailing period.
+.RE
+.sp
+\fIlicense\fP (recommended)
+.RS 4
+SPDX identifier or short name (\fIMIT\fP, \fIGPL\-3.0\-only\fP, \fIApache\-2.0\fP). Single
+value; for multi\-licensed software pick the binding one.
+.RE
+.sp
+\fIpkgtype\fP (optional)
+.RS 4
+"source" (default) or "binary". Anything else is treated as "source".
+\fIbinary\fP tells \fIlpm\fP to fetch a prebuilt \fI.lpkg\fP instead of running
+\fIbuild()\fP/\fIpackage()\fP.
+.RE
+.SS "ARRAY FIELDS"
+.sp
+Bash arrays; \fIomit any you don\(cqt need\fP \(em absent is the same as empty.
+Elements are separated by whitespace (a comma or semicolon between them is
+tolerated but never required). Limits: 128 for the dependency/metadata arrays,
+64 for \fIbackup\fP.
+.sp
+\fIdepends\fP
+.RS 4
+Runtime dependencies. Element is "name" or "name>=ver", "name\(lAver",
+"name=ver". Only \fI>=\fP, \fI\(lA\fP, and \fI=\fP are supported; strict \fI>\fP and \fI<\fP are
+not (use \fI>=\fP/\fI\(lA\fP, or omit the operator for "any version").
+.RE
+.sp
+\fImakedepends\fP
+.RS 4
+Build\-time\-only dependencies. Not required at runtime.
+.RE
+.sp
+\fIrecommends\fP
+.RS 4
+Soft dependencies: offered at \fIinstall\fP time, never force\-installed, never
+blocking if absent.
+.RE
+.sp
+\fIconflicts\fP
+.RS 4
+Packages that cannot be installed alongside this one.
+.RE
+.sp
+\fIprovides\fP
+.RS 4
+Virtual capability names this package satisfies.
+.RE
+.sp
+\fIreplaces\fP
+.RS 4
+Old package name(s) this package supersedes (rename support).
+.RE
+.sp
+\fIgroups\fP
+.RS 4
+Arbitrary bulk\-operation tags (e.g. "toolchain"). Not used for dependency
+resolution.
+.RE
+.sp
+\fIbackup\fP
+.RS 4
+Config file paths, \fIrelative to the install root\fP, that survive
+upgrades/reinstalls instead of being overwritten.
+.RE
+.SS "SOURCES AND CHECKSUMS"
+.sp
+\fIsources\fP and \fIchecksums\fP are \fIpositionally paired\fP arrays: \fIchecksums[i]\fP
+describes \fIsources[i]\fP, same index, no exceptions. Insert a new checksum at the
+same position you insert a new source; appending one at the end pairs it with
+the wrong source.
+.sp
+.if n .RS 4
+.nf
+.fam C
+sources = (
+    "https://example.org/foo\-${pkgver}.tar.xz"
+    "patches/musl\-fix.patch"
+)
+
+checksums = (
+    "sha512:aabbcc...."
+    "SKIP"
+)
+.fam
+.fi
+.if n .RE
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.  sp -1
+.  IP \(bu 2.3
+.\}
+Each \fIsources\fP element is a full URL (fetched over the network) or a path
+relative to the PKGBUILD\(cqs directory (used as\-is \(em typically a patch). The
+parser never rewrites these strings.
+.RE
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.  sp -1
+.  IP \(bu 2.3
+.\}
+Each \fIchecksums\fP element is one of: \fIsha512:<128 hex>\fP, \fIsha256:<64 hex>\fP,
+\fImd5:<32 hex>\fP, or \fISKIP\fP (explicitly unverified \(em for your own patch files,
+never for upstream tarballs). The algorithm is read \fIentirely from the
+prefix\fP; there is no auto\-detection by length.
+.RE
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.  sp -1
+.  IP \(bu 2.3
+.\}
+A missing checksum (fewer entries than sources) is treated as unverified with
+a warning \(em not a hard error. Do not rely on this.
+.RE
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.  sp -1
+.  IP \(bu 2.3
+.\}
+Up to 32 entries in each of \fIsources\fP / \fIchecksums\fP.
+.RE
+.sp
+\fIRemoved, never coming back:\fP \fIsource\fP, \fIsource2\fP, \fIsource3\fP, \fIsha256sums\fP,
+\fIsha512sums\fP, \fImd5sums\fP. A PKGBUILD using any of those has \fIzero\fP
+sources/checksums as far as \fIlpm\fP is concerned \(em a silent empty result, not a
+warning.
+.SS "BUILD FUNCTIONS"
+.sp
+\fIbuild()\fP (optional)
+.RS 4
+Compile. Runs unprivileged in \fI$srcdir\fP. Omit for packages needing no
+build step.
+.RE
+.sp
+\fIcheck()\fP (optional)
+.RS 4
+Test suite. Runs unprivileged. Informational unless \fI\-\-strict\fP makes a
+failure fatal, or unless run explicitly via \fIlpm test\fP.
+.RE
+.sp
+\fIpackage()\fP (required)
+.RS 4
+Stage the final install tree into \fI$pkgdir\fP (e.g. \fImake DESTDIR="$pkgdir"
+install\fP). This is the only function \fIlpm\fP requires \(em everything installed
+comes from what ends up under \fI$pkgdir\fP.
+.RE
+.sp
+Inside these functions the available variables are \fI$srcdir\fP (extracted
+sources), \fI$pkgdir\fP (staging root), and \fI$\f(CR{\fPpkgname}\fP / \fI$\f(CR{\fPpkgver}\fP /
+\fI$\f(CR{\fPpkgrel}\fP.
+.sp
+Each of \fIbuild()\fP, \fIcheck()\fP, and \fIpackage()\fP runs with the working directory
+reset to the build workspace root \fIindependently\fP: never assume shell state
+(such as a \fIcd\fP) carries from one function to the next. For out\-of\-tree builds,
+create the build directory inside \fIbuild()\fP and \fIcd\fP into the same relative
+path again at the top of \fIcheck()\fP / \fIpackage()\fP.
+.sp
+\fIuninstall()\fP is \fInot\fP supported. \fIlpm\fP detects it for diagnostics but never
+calls it; removal is handled entirely through the recorded file list.
+.SS "EXAMPLE"
+.sp
+.if n .RS 4
+.nf
+.fam C
+# Lotus Package Definition File (LPDF v1)
+# Filename: PKGBUILD
+# Encoding: UTF\-8
+
+pkgname = "hello"
+pkgver\&  = "2.12.1"
+pkgrel\&  = "1"
+pkgdesc = "The GNU Hello package"
+license = "GPL\-3.0"
+
+pkgtype\&     = "source"
+depends\&     = ("musl" "busybox")
+makedepends = ("gcc" "make")
+recommends\&  = ("man\-pages")
+conflicts\&   = ("hello\-bin")
+provides\&    = ("virtual\-hello")
+replaces\&    = ("hello\-old")
+groups\&      = ("gnu\-utils")
+backup\&      = ("etc/hello.conf")
+
+sources = (
+    "https://ftp.gnu.org/gnu/hello/hello\-2.12.1.tar.gz"
+    "hello\-fix\-musl.patch"
+)
+
+checksums = (
+    "sha256:8d99142afd92576f30b0cd7cb42a8dc6809998bc5d607d88761f512e26c7db20"
+    "SKIP"
+)
+
+build() {
+    cd "hello\-${pkgver}"
+    patch \-p1 < ../hello\-fix\-musl.patch
+    ./configure \-\-prefix=/usr
+    make
+}
+
+check() {
+    cd "hello\-${pkgver}"
+    make check
+}
+
+package() {
+    cd "hello\-${pkgver}"
+    make DESTDIR="$pkgdir" install
+}
+.fam
+.fi
+.if n .RE
+.SS "SEE ALSO"
+.sp
+\fBlpm\fP(1), \fBlpm.conf\fP(5)

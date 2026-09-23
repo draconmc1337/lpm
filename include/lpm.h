@@ -25,7 +25,7 @@
 #include <unistd.h>
 
 /* ── version ─────────────────────────────────────────────────────────── */
-#define LPM_VERSION "2.0.0"
+#define LPM_VERSION "2.1.0"
 
 /* ── upstream repository ────────────────────────────────────────────────
  * Single source of truth for the repo-lotus base URL. build.c, sync.c and
@@ -86,6 +86,18 @@
 /* ── debug level (global, set from --debug=N or LPM_DEBUG env) ──────── */
 extern int g_debug;
 
+/* ── ui.c: shared atomic output writer (see src/ui.c) ────────────────── *
+ * ui_out/ui_err emit one complete formatted block under a global mutex so
+ * concurrent workers never interleave output character-by-character. The
+ * DBG macro below routes through ui_dbg, which shares that same writer. */
+void ui_out(const char *fmt, ...) __attribute__((format(printf,1,2)));
+void ui_err(const char *fmt, ...) __attribute__((format(printf,1,2)));
+void ui_dbg(int level, const char *prefix, const char *fmt, ...)
+    __attribute__((format(printf,3,4)));
+void ui_sig_block(void);
+void ui_pkg_row(const char *tag, const char *repo,
+                const char *name, const char *ver);
+
 /* DBG(level, fmt, ...) — prints to stderr when g_debug >= level
  *   level 1  [DEBUG]  user-facing: dep resolution, cache hit/miss, mirror
  *   level 2  [DEBUG]  deep:        URLs, checksums, dep graph edges
@@ -94,10 +106,8 @@ extern int g_debug;
 #define DBG(level, fmt, ...) \
     do { \
         if (g_debug >= (level)) { \
-            if ((level) >= 3) \
-                fprintf(stderr, "[TRACE] " fmt "\n", ##__VA_ARGS__); \
-            else \
-                fprintf(stderr, "[DEBUG] " fmt "\n", ##__VA_ARGS__); \
+            ui_dbg((level), ((level) >= 3) ? "[TRACE] " : "[DEBUG] ", \
+                   fmt, ##__VA_ARGS__); \
         } \
     } while (0)
 
@@ -402,6 +412,7 @@ extern LpmConfig g_cfg;
 extern int g_lock_fd;
 extern int g_verbose;
 extern int g_debug;
+extern int g_quiet_tx;
 extern volatile sig_atomic_t g_cancel;
 
 /* ── util.c ──────────────────────────────────────────────────────────── */
@@ -430,6 +441,9 @@ void util_progress_bar(int slot, int total, const char *name, int percent,
 int lpm_config_load(const char *path, LpmConfig *cfg);
 void lpm_config_defaults(LpmConfig *cfg);
 void lpm_config_dump(const LpmConfig *cfg);
+/* Single canonical entry point: populates g_cfg from LPM_CONF_FILE.
+ * Called once from main() before command dispatch. All handlers read g_cfg. */
+int lpm_config_init(void);
 
 /* ── pkgbuild_parser.c (fast C parser + binary cache) ───────────────── */
 int pkgbuild_parse_fast(const char *pbfile, Package *pkg);
@@ -556,7 +570,8 @@ int  dryrun_remove(char **pkgnames, int npkgs, DryRun *dr);
 void cmd_list(int argc, char **argv);
 void cmd_orphans(int argc, char **argv);
 int db_count_orphans(void);               /* count orphans, no output — for `lpm audit` */
-int db_count_pending_updates(void);       /* count pending updates from cached repo.db, -1 if not synced */
+int db_count_pending_updates(void);
+int db_sync_quiet(void);       /* count pending updates from cached repo.db, -1 if not synced */
 void cmd_audit(int argc, char **argv);    /* lpm audit [--log] */
 
 /* ── cache.c ─────────────────────────────────────────────────────────── */

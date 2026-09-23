@@ -9,6 +9,10 @@ LpmConfig g_cfg;
 int g_lock_fd  = -1;
 int g_verbose  = 0;
 int g_debug    = 0;
+int g_quiet_tx = 0;   /* suppress cmd_sync's own summary/confirm/step output
+                      * when it is invoked as a sub-step of another
+                      * transaction (e.g. `lpm upgrade <targets>`), so the
+                      * parent command owns the UX contract output. */
 
 /* ── die / warn ──────────────────────────────────────────────────────── */
 void die(const char *fmt, ...) {
@@ -232,13 +236,13 @@ char *util_strip(char *s) {
 
 /* ── util_run ────────────────────────────────────────────────────────── */
 int util_run(const char *cmd) {
-    if (g_verbose >= 1) printf(C_GRAY "  $ %s\n" C_RESET, cmd);
+    /* verbose command-line echo goes through the shared atomic writer so it
+     * serializes with install/debug blocks instead of interleaving. */
+    if (g_verbose >= 1) ui_out(C_GRAY "  $ %s\n" C_RESET, cmd);
     int ret = system(cmd);
     if (ret == -1) return -1;
     int code = WEXITSTATUS(ret);
-    if (g_verbose >= 2) {
-        printf(C_GRAY "  -> exit code: %d\n" C_RESET, code);
-    }
+    if (g_verbose >= 2) ui_out(C_GRAY "  -> exit code: %d\n" C_RESET, code);
     return code;
 }
 

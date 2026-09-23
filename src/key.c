@@ -76,18 +76,62 @@ void cmd_key(int argc, char **argv) {
     if (gen_key_id(kid, sizeof(kid)) != 0) die("failed to generate key id");
     printf("%s\n", kid);
   } else if (!strcmp(sub, "list")) {
-    snprintf(cmd, sizeof(cmd), "gpg --homedir '%s' --list-keys", LPM_KEYRING_DIR);
-    if (util_run(cmd) != 0) die("failed to list keys");
+    snprintf(cmd, sizeof(cmd),
+             "gpg --homedir '%s' --list-keys --with-colons 2>/dev/null",
+             LPM_KEYRING_DIR);
+    FILE *p = popen(cmd, "r");
+    if (!p) die("failed to list keys");
+    /* collect pub keyids + their first uid */
+    char ids[128][32]; char uids[128][256]; int n = 0;
+    char last_id[32] = "";
+    char l[1024];
+    while (fgets(l, sizeof(l), p)) {
+      l[strcspn(l, "\n")] = '\0';
+      char *f1 = strchr(l, ':');
+      if (!f1) continue;
+      *f1 = '\0';
+      if (!strcmp(l, "pub")) {
+        /* keyid is colon-field 5 */
+        char *tok = strtok(f1 + 1, ":");
+        tok = tok ? strtok(NULL, ":") : NULL;
+        tok = tok ? strtok(NULL, ":") : NULL;
+        tok = tok ? strtok(NULL, ":") : NULL;
+        snprintf(last_id, sizeof(last_id), "%s", tok ? tok : "");
+      } else if (!strcmp(l, "uid") && last_id[0] && n < 128) {
+        /* uid is colon-field 10 */
+        char *save = NULL;
+        char *flds[12]; int nf = 0;
+        for (char *t = strtok_r(f1 + 1, ":", &save); t && nf < 12;
+             t = strtok_r(NULL, ":", &save)) flds[nf++] = t;
+        const char *uid = (nf >= 10) ? flds[9] : "";
+        snprintf(ids[n], 32, "%s", last_id);
+        snprintf(uids[n], 256, "%s", uid);
+        n++;
+        last_id[0] = '\0';
+      }
+    }
+    pclose(p);
+    printf("Trusted keys (%d)\n\n", n);
+    for (int i = 0; i < n; i++)
+      printf("%.8s...  %s\n", ids[i], uids[i]);
   } else if (!strcmp(sub, "recv")) {
     if (argc < 2) die("usage: lpm key recv <keyid>");
     snprintf(cmd, sizeof(cmd),
-             "gpg --homedir '%s' --keyserver keyserver.ubuntu.com --recv-keys '%s'",
+             "gpg --homedir '%s' --keyserver keyserver.ubuntu.com --recv-keys '%s'"
+             " 2>/dev/null",
              LPM_KEYRING_DIR, argv[1]);
+    ui_out("Importing key...\n");
     if (util_run(cmd) != 0) die("failed to receive key %s", argv[1]);
+    ui_out("Key imported successfully.\n");
   } else if (!strcmp(sub, "import")) {
     if (argc < 2) die("usage: lpm key import <file>");
-    snprintf(cmd, sizeof(cmd), "gpg --homedir '%s' --import '%s'", LPM_KEYRING_DIR, argv[1]);
-    if (util_run(cmd) != 0) die("failed to import key file %s", argv[1]);
+    if (access(argv[1], R_OK) != 0) die("Package not found: %s", argv[1]);
+    ui_out("Importing key...\n");
+    snprintf(cmd, sizeof(cmd),
+             "gpg --homedir '%s' --import '%s' 2>/dev/null",
+             LPM_KEYRING_DIR, argv[1]);
+    if (util_run(cmd) != 0) die("Signature verification failed.");
+    ui_out("Key imported successfully.\n");
   } else if (!strcmp(sub, "trust")) {
     if (argc < 2) die("usage: lpm key trust <keyid>");
     snprintf(cmd, sizeof(cmd),

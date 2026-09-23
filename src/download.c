@@ -211,7 +211,9 @@ int dl_fetch_all(FetchJob *jobs, int njobs) {
     g_nslots = njobs < MAX_SLOTS ? njobs : MAX_SLOTS;
     memset(g_slots, 0, sizeof(g_slots));
 
-    printf("Downloading...\n");
+    /* No bare "Downloading..." header: the per-file progress bars below
+     * are labelled with each package name, which is what the UX contract
+     * requires (never a nameless "Downloading..." line). */
 
     for (int i = 0; i < g_nslots; i++) {
         /* label = basename of URL stripped of extension clutter */

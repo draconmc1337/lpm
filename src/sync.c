@@ -211,7 +211,9 @@ static void fmt_size(long bytes, char *out, size_t sz) {
  * known, per the "predictable, not verbose" output style).
  *
  * Returns the number of repos successfully fetched (0..NREPOS).        */
-static int do_repo_sync(int show_progress, RepoEntry *repo_entries, int *total_entries_out) {
+static int do_repo_sync(RepoEntry *repo_entries, int *total_entries_out,
+                        int *status_out) {
+    /* status_out[i] (optional): 1 = updated, 0 = up to date, -1 = failed */
     char db_dir[LPM_PATH_MAX];
     snprintf(db_dir, sizeof(db_dir), "/tmp/lpm-sync.%d", (int)getpid());
     util_mkdirp(db_dir, 0700);
@@ -253,14 +255,8 @@ static int do_repo_sync(int show_progress, RepoEntry *repo_entries, int *total_e
 
     int ok_count = 0;
     for (int i = 0; i < NREPOS; i++) {
-        if (jobs[i].result == 0) {
+        if (jobs[i].result == 0)
             ok_count++;
-            if (show_progress)
-                printf("%s\n", REPO_NAMES[i]);
-        } else {
-            if (show_progress)
-                fprintf(stderr, "Error: failed to sync %s\n", REPO_NAMES[i]);
-        }
     }
 
     /* ── verify repo.db signatures before touching any metadata ───── *
@@ -280,10 +276,8 @@ static int do_repo_sync(int show_progress, RepoEntry *repo_entries, int *total_e
         int sig_ok = (sig_jobs[i].result == 0);
         const char *sigpath = sig_ok ? sig_jobs[i].dest : NULL;
         if (lpm_sig_verify(jobs[i].dest, sigpath, /*sig_required=*/1) != 0) {
-            fprintf(stderr,
-                "Error:\n\n"
-                "repo.db signature verification failed for %s\n\n"
-                "Cannot continue.\n", REPO_NAMES[i]);
+            ui_err("Signature verification failed for %s repo.db.\n",
+                   REPO_NAMES[i]);
             jobs[i].result = -1; /* mark failed so parse/persist loops skip it */
             ok_count--;
         } else {
@@ -306,12 +300,25 @@ static int do_repo_sync(int show_progress, RepoEntry *repo_entries, int *total_e
     /* ── persist ───────────────────────────────────────────────────── */
     util_mkdirp("/var/lib/lpm/db", 0755);
     for (int i = 0; i < NREPOS; i++) {
-        if (jobs[i].result != 0) continue;
+        if (jobs[i].result != 0) {
+            if (status_out) status_out[i] = -1;
+            continue;
+        }
         char persist[LPM_PATH_MAX];
         snprintf(persist, sizeof(persist),
                  "/var/lib/lpm/db/%s.db", REPO_NAMES[i]);
+        /* detect change: compare new fetch against existing persisted db */
+        int changed = 1;
+        struct stat old_st;
+        if (stat(persist, &old_st) == 0) {
+            char cmp[LPM_PATH_MAX * 2 + 16];
+            snprintf(cmp, sizeof(cmp), "cmp -s '%s' '%s'", jobs[i].dest, persist);
+            changed = (system(cmp) != 0);
+        }
         util_copy_file(jobs[i].dest, persist);
-        DBG(1, "persisted %s.db -> %s", REPO_NAMES[i], persist);
+        if (status_out) status_out[i] = changed ? 1 : 0;
+        DBG(1, "persisted %s.db -> %s (%s)", REPO_NAMES[i], persist,
+            changed ? "updated" : "up to date");
     }
 
     char rmcmd[LPM_PATH_MAX + 16];
@@ -359,12 +366,11 @@ int db_count_pending_updates(void) {
     InstalledPkg *all = NULL; int nall = 0;
     if (db_list_all(&all, &nall) != 0 || !all) { free(repo_entries); return 0; }
 
-    LpmConfig cfg;
-    lpm_config_load(LPM_CONF_FILE, &cfg);
+    /* config comes from g_cfg (populated once by lpm_config_init in main) */
 
     int count = 0;
     for (int i = 0; i < nall; i++) {
-        if (lpm_config_is_ignored(&cfg, all[i].name)) continue;
+        if (lpm_config_is_ignored(&g_cfg, all[i].name)) continue;
 
         RepoEntry *found = NULL;
         for (int e = 0; e < total_entries; e++)
@@ -383,28 +389,57 @@ int db_count_pending_updates(void) {
     return count;
 }
 
+/* Sync all repo.db files with no user-facing output; returns the number of
+ * packages loaded across all repos. Used by bootstrap before it shows its
+ * own transaction summary. */
+int db_sync_quiet(void) {
+    RepoEntry *repo_entries = calloc(4096, sizeof(RepoEntry));
+    if (!repo_entries) die("Out of memory");
+    int total_entries = 0;
+    do_repo_sync(repo_entries, &total_entries, NULL);
+    free(repo_entries);
+    return total_entries;
+}
+
 void cmd_db_update(int argc, char **argv) {
     check_root();
     init_dirs();
     (void)argc; (void)argv;
 
-    printf("Synchronizing repositories...\n\n");
+    ui_out(":: Synchronizing package databases...\n\n");
 
     RepoEntry *repo_entries = calloc(4096, sizeof(RepoEntry));
     if (!repo_entries) die("Out of memory");
     int total_entries = 0;
-    int ok = do_repo_sync(1, repo_entries, &total_entries);
+    int status[NREPOS];
+    int ok = do_repo_sync(repo_entries, &total_entries, status);
     free(repo_entries);
 
-    printf("\n");
+    if (g_cfg.verify_sig)
+        ui_sig_block();
+
+    for (int i = 0; i < NREPOS; i++) {
+        ui_out("%s\n", REPO_NAMES[i]);
+        if (status[i] < 0) {
+            ui_out("  Downloading database...\n");
+            ui_err("error: failed to sync %s\n", REPO_NAMES[i]);
+        } else if (status[i] == 1) {
+            ui_out("  Downloading database...\n");
+            ui_out("  Database updated.\n");
+        } else {
+            ui_out("  Downloading database...\n");
+            ui_out("  Database is up to date.\n");
+        }
+        ui_out("\n");
+    }
+
     if (ok == 0) {
-        fprintf(stderr,
-            "Error:\n\n"
-            "All repositories failed to sync.\n\n"
-            "Cannot continue.\n");
+        ui_err("\nRepository sync failed — all mirrors returned an error.\n"
+               "This usually means the repo.db files haven't been built/pushed\n"
+               "yet, not a local misconfiguration.\n");
         exit(1);
     }
-    printf("Done.\n");
+    ui_out("Database synchronization complete.\n");
 }
 
 /* ── cmd_suy — public entry point ────────────────────────────────────── */
@@ -415,8 +450,7 @@ void cmd_suy(int argc, char **argv) {
     init_dirs();
     check_remove_journal();
 
-    LpmConfig cfg;
-    lpm_config_load(LPM_CONF_FILE, &cfg);
+    /* config comes from g_cfg (populated once by lpm_config_init in main) */
     LpmFlags flags;
     char *flagargs[256];
     lpm_parse_flags(argc, argv, &flags, flagargs, 256);
@@ -424,21 +458,22 @@ void cmd_suy(int argc, char **argv) {
     /* ── sync repos (always fresh — silent until update list known) ── */
     DBG(1, "starting repo sync (%d repos)", NREPOS);
 
-    printf("Synchronizing repositories...\n\n");
-
+    ui_out(":: Synchronizing package databases...\n");
     RepoEntry *repo_entries = calloc(4096, sizeof(RepoEntry));
     if (!repo_entries) die("Out of memory");
     int total_entries = 0;
-    do_repo_sync(0, repo_entries, &total_entries);
+    do_repo_sync(repo_entries, &total_entries, NULL);
+    ui_out("Done.\n\n");
 
     if (total_entries == 0) {
-        fprintf(stderr,
-            "Error:\n\n"
-            "could not sync repositories\n\n"
-            "Cannot continue.\n");
+        ui_err("Repository sync failed.\n");
         free(repo_entries);
         exit(1);
     }
+
+    ui_out("Resolving dependencies...\n");
+    ui_out("Checking package conflicts...\n");
+    ui_out("Done.\n\n");
 
     /* ── Phase 3: determine targets ──────────────────────────────── */
     /* If args given: only check those packages.
@@ -453,7 +488,7 @@ void cmd_suy(int argc, char **argv) {
     } else {
         FILE *f = fopen(LPM_DB, "r");
         if (!f) {
-            printf("There is nothing to do.\n");
+            printf("No packages to upgrade.\n");
             free(repo_entries);
             return;
         }
@@ -478,7 +513,7 @@ void cmd_suy(int argc, char **argv) {
     for (int t = 0; t < ntargets; t++) {
         const char *name = targets[t];
 
-        if (lpm_config_is_ignored(&cfg, name)) { nignored++; continue; }
+        if (lpm_config_is_ignored(&g_cfg, name)) { nignored++; continue; }
 
         /* look up in repo entries — last writer wins (lotus > extra > base) */
         RepoEntry *found = NULL;
@@ -497,7 +532,7 @@ void cmd_suy(int argc, char **argv) {
             strncpy(u->new_ver,  found->version,   LPM_VER_MAX+15);
             strncpy(u->repo,     found->repo,       15);
             u->is_binary   = found->is_binary;
-            u->is_critical = lpm_config_is_critical(&cfg, name);
+            u->is_critical = lpm_config_is_critical(&g_cfg, name);
             u->dl_size     = found->dl_size;
             u->inst_size   = found->inst_size;
         } else if (version_compare(inst, found->version) < 0) {
@@ -509,7 +544,7 @@ void cmd_suy(int argc, char **argv) {
             strncpy(u->new_ver,  found->version,  LPM_VER_MAX+15);
             strncpy(u->repo,     found->repo,      15);
             u->is_binary   = found->is_binary;
-            u->is_critical = lpm_config_is_critical(&cfg, name);
+            u->is_critical = lpm_config_is_critical(&g_cfg, name);
             u->dl_size     = found->dl_size;
             u->inst_size   = found->inst_size;
             free(inst);
@@ -536,7 +571,7 @@ void cmd_suy(int argc, char **argv) {
         for (int ri = 0; ri < meta.nreplaces; ri++) {
             const char *old_name = meta.replaces[ri];
             if (!db_is_installed(old_name)) continue;
-            if (lpm_config_is_ignored(&cfg, old_name)) continue;
+            if (lpm_config_is_ignored(&g_cfg, old_name)) continue;
             /* old_name is installed, new name is not → rename upgrade */
             char *old_ver = db_get_version(old_name);
             UpdateEntry *u = &updates[nupdate++];
@@ -547,7 +582,7 @@ void cmd_suy(int argc, char **argv) {
             snprintf(u->repo,         15,                "%s", re->repo);
             snprintf(u->replaces_old, LPM_NAME_MAX,      "%s", old_name);
             u->is_binary   = re->is_binary;
-            u->is_critical = lpm_config_is_critical(&cfg, old_name);
+            u->is_critical = lpm_config_is_critical(&g_cfg, old_name);
             u->dl_size     = re->dl_size;
             u->inst_size   = re->inst_size;
             if (old_ver) free(old_ver);
@@ -556,7 +591,7 @@ void cmd_suy(int argc, char **argv) {
 
     /* ── Phase 5: display ─────────────────────────────────────────── */
     if (nupdate == 0) {
-        printf("There is nothing to do.\n");
+        printf("No packages to upgrade.\n");
         goto suy_cleanup;
     }
 
@@ -565,31 +600,18 @@ void cmd_suy(int argc, char **argv) {
     long total_dl   = 0;
     long total_inst = 0;  /* binary installs only */
     long total_src_heuristic = 0;
-    long total_old_inst = 0;
-
-    /* compute max name width for alignment */
-    int name_w = 0;
-    for (int i = 0; i < nupdate; i++) {
-        int len = (int)strlen(updates[i].name);
-        if (len > name_w) name_w = len;
-    }
-    if (name_w < 1) name_w = 1;
 
     for (int i = 0; i < nupdate; i++) {
         UpdateEntry *u = &updates[i];
 
-        printf("%-*s  %s -> %s\n",
-               name_w, u->name, u->inst_ver, u->new_ver);
+        char tag[16];
+        snprintf(tag, sizeof(tag), "%s U", u->is_binary ? "binary" : "source");
+        ui_pkg_row(tag, u->repo, u->name, u->new_ver);
 
         if (u->dl_size > 0)   total_dl   += u->dl_size;
         if (u->is_binary)     total_inst += u->inst_size;
         else                  total_src_heuristic +=
                                   (long)(u->dl_size * SRC_SIZE_MUL);
-
-        /* estimate old size for net change when available */
-        InstalledPkg ip; memset(&ip, 0, sizeof(ip));
-        if (db_query(u->name, &ip) == 0)
-            total_old_inst += (long)ip.install_size;
     }
 
     /* ── Phase 6: summary + disk check ──────────────────────────── */
@@ -604,22 +626,8 @@ void cmd_suy(int argc, char **argv) {
         long free_bytes = util_disk_free("/");
         fmt_size(free_bytes, free_str, sizeof(free_str));
 
-        printf("\n");
-        if (total_dl > 0)
-            printf("Download size: %s\n", dl_str);
-        if (new_inst > 0)
-            printf("Installed size: %s\n", inst_str);
-        if (total_old_inst > 0 && new_inst > 0) {
-            long net = new_inst - total_old_inst;
-            char net_str[32];
-            if (net >= 0) {
-                fmt_size(net, net_str, sizeof(net_str));
-                printf("Net change: +%s\n", net_str);
-            } else {
-                fmt_size(-net, net_str, sizeof(net_str));
-                printf("Net change: -%s\n", net_str);
-            }
-        }
+        printf("\nTotal: %d packages (0 new, %d reinstall), download size: %s\n\n",
+               nupdate, nupdate, dl_str);
         if (nignored)
             printf("(%d package(s) skipped — IgnorePkg)\n", nignored);
 
@@ -627,22 +635,20 @@ void cmd_suy(int argc, char **argv) {
         if (free_bytes > 0 && free_bytes < needed) {
             char need_str[32];
             fmt_size(needed, need_str, sizeof(need_str));
-            fprintf(stderr,
-                "\nError:\n\n"
-                "Not enough disk space — need %s, have %s.\n\n"
-                "Cannot continue.\n",
-                need_str, free_str);
+            ui_err("Insufficient disk space — need %s, have %s.\n",
+                   need_str, free_str);
             goto suy_cleanup;
         }
     }
 
     /* ── Phase 7: confirm ────────────────────────────────────────── */
-    printf("\n");
     if (!flags.no_confirm) {
-        if (!confirm("Proceed? [Y/n] "))
+        if (!confirm("Upgrade these packages? [Y/n] "))
             goto suy_cleanup;
+        printf("\n");
     }
-    printf("\n");
+    if (g_cfg.verify_sig)
+        ui_sig_block();
 
     /* ── Phase 8: fetch PKGBUILDs + rebuild ─────────────────────── */
     int failed = 0;
@@ -650,7 +656,8 @@ void cmd_suy(int argc, char **argv) {
         CHECK_CANCEL(suy_done);
         UpdateEntry *u = &updates[i];
 
-        printf("Upgrading %s...\n", u->name);
+        ui_out("(%d/%d) %s %s-%s\n", i + 1, nupdate,
+               u->is_binary ? "Installing" : "Building", u->name, u->new_ver);
 
         /* fetch fresh PKGBUILD */
         char dest[LPM_PATH_MAX], url_found[LPM_URL_MAX];
@@ -720,9 +727,8 @@ void cmd_suy(int argc, char **argv) {
         }
 
         if (!fetched) {
-            fprintf(stderr,
-                "Error: Could not fetch PKGBUILD for %s — skipping.\n",
-                u->name);
+            ui_err("error: could not fetch PKGBUILD for %s — skipping.\n",
+                   u->name);
             failed++;
             continue;
         }
@@ -733,21 +739,25 @@ void cmd_suy(int argc, char **argv) {
         snprintf(rmcache, sizeof(rmcache), "rm -rf '%s'", cache);
         (void)system(rmcache);
 
-        /* delegate to cmd_sync which handles build + merge + db */
-        char *pair[1] = { u->name };
-        cmd_sync(1, pair);
+        /* delegate to cmd_sync which handles build + merge + db, quietly
+         * (this command already printed the summary/confirm/step line) */
+        char *pair[2] = { (char *)"--no-confirm", u->name };
+        int saved = g_quiet_tx; g_quiet_tx = 1;
+        cmd_sync(2, pair);
+        g_quiet_tx = saved;
 
         lpm_log("Updated %s  %s -> %s", u->name, u->inst_ver, u->new_ver);
     }
 
-suy_done:
-    printf("\n");
-    if (failed)
-        warn("%d package(s) failed", failed);
+ suy_done:
+    if (g_cancel)
+        ui_out("Interrupted.\n");
+    else if (failed)
+        ui_err("Transaction aborted.\n");
     else
-        printf("Done.\n");
+        ui_out("\nTransaction complete.\n");
 
-suy_cleanup:
+ suy_cleanup:
     free(repo_entries);
     free(updates);
     if (targets_alloc)

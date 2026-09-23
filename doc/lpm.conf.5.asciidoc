@@ -1,0 +1,164 @@
+lpm.conf(5)
+===========
+:doctype: manpage
+:man manual: lpm Manual
+:man source: lpm {revnumber}
+:leveloffset: 1
+
+NAME
+----
+lpm.conf - Lotus Package Manager configuration file
+
+
+SYNOPSIS
+--------
+/etc/lpm/lpm.conf
+
+
+DESCRIPTION
+-----------
+'lpm.conf' is the single configuration file read by *lpm*(1). It is a simple
+'key = value' text file with a fixed key set; lines are 'key = value' pairs,
+'#' starts a comment to end of line, and blank lines are ignored. Surrounding
+single or double quotes around a value are stripped. Both 'key=value' and
+'key = value' spacing are accepted, though the canonical Lotus style puts
+spaces around '='.
+
+The file is read once, through 'lpm_config_init()', which populates the
+in-memory config before any command runs. An optional compiler profile is
+consulted too (see 'PROFILE').
+
+The repository set is *not* configured here: 'lpm' fetches from a fixed,
+compiled-in list of repositories ('base', 'extra', 'lotus'). '[base]' /
+'[extra]' / '[lotus]' section headers are *not* parsed by the current config
+reader and have no effect.
+
+
+SYNTAX
+------
+....
+# comment
+CFLAGS = -O2 -pipe
+JOBS = 0
+CriticalPkg = musl gcc
+CriticalPkg = bash coreutils
+....
+
+A key appearing on multiple lines is handled per-key: 'CriticalPkg' and
+'IgnorePkg' 'accumulate' across lines; scalar keys take the last value seen.
+
+
+OPTIONS
+-------
+
+=== Build environment ===
+
+'CFLAGS'::
+	Type: string. Default: +-O2 -pipe -fstack-protector-strong -D_FORTIFY_SOURCE=2+.
+	Flags passed to the C compiler during 'build()'.
+
+'CXXFLAGS'::
+	Type: string. Default: as 'CFLAGS'. Flags for the C++ compiler.
+
+'LDFLAGS'::
+	Type: string. Default: +-Wl,-z,relro,-z,now+. Flags for the linker.
+
+'MAKEFLAGS'::
+	Type: string. Default: '(empty)' (the shipped file sets +-j4+). Extra
+	flags passed to 'make'.
+
+'CC'::
+	Type: string. Default: 'gcc'. C compiler.
+
+'CXX'::
+	Type: string. Default: 'g++'. C++ compiler.
+
+'JOBS'::
+	Type: integer. Default: '0' (= automatic, 'nproc'). Parallel build jobs.
+	Negative values are clamped to '0'.
+
+=== Paths ===
+
+'BUILDDIR'::
+	Type: path. Default: '/var/cache/lpm'. Build workspace root.
+
+'PKGDEST'::
+	Type: path. Default: '/var/cache/lpm'. Where finished package archives go.
+
+'SRCDEST'::
+	Type: path. Default: '/var/cache/lpm'. Downloaded source cache.
+
+'LOGDIR'::
+	Type: path. Default: '/var/log/lpm'. Per-package build logs. Legacy alias
+	'LogDir' is also accepted.
+
+'FILESDIR'::
+	Type: path. Default: '/var/lib/lpm/files'. File-ownership database root.
+	Legacy alias 'FilesDir' is also accepted.
+
+=== Download ===
+
+'DOWNLOADER'::
+	Type: 'auto', 'wget', or 'curl'. Default: 'auto'. *auto* probes for
+	'wget' then 'curl'.
+
+'PARALLEL_DL'::
+	Type: bool ('1'/'0'). Default: '1'. Download multiple files concurrently.
+
+'MAX_DL_THREADS'::
+	Type: integer, clamped to '1-16'. Default: '4'. Maximum concurrent
+	download threads when 'PARALLEL_DL' is enabled.
+
+'VERIFY_SIG'::
+	Type: bool. Default: '0'. When '1', verify detached GPG signatures on
+	repository databases and '.lpkg' archives (missing or bad signatures
+	abort with 'Signature verification failed.'). When '0', a present-but
+	invalid signature still fails, but an absent one is tolerated.
+
+=== Build behaviour ===
+
+'KEEP_SRC'::
+	Type: bool. Default: '0'. Keep the extracted source tree after a build.
+
+'KEEP_PKG'::
+	Type: bool. Default: '0'. Keep the staging (pkg) directory after install.
+	Also controls debug-symbol stripping of staged files.
+
+'CHECK_SPACE'::
+	Type: bool. Default: '1'. Warn/abort when free disk space is low before a
+	build or install.
+
+'COLOR'::
+	Type: bool. Default: '1'. ANSI-colored terminal output.
+
+'CONFIRM'::
+	Type: bool. Accepted by the parser but not present in the shipped file;
+	interactive confirmation is normally controlled by the '--no-confirm' CLI
+	flag rather than config.
+
+'PROFILE'::
+	Type: string. Default: 'generic'. If set, 'lpm' additionally loads
+	'/etc/lpm/profiles/<PROFILE>.conf' and applies its keys on top.
+
+=== Package protection ===
+
+'CriticalPkg'::
+	Type: list of names (space- or comma-separated, accumulating across
+	lines). Packages 'remove' refuses to touch without '--force'.
+
+'IgnorePkg'::
+	Type: list of names (as above). Packages skipped during 'upgrade'.
+
+
+FILES
+-----
+'/etc/lpm/lpm.conf'::
+	The configuration file.
+
+'/etc/lpm/profiles/<name>.conf'::
+	Optional compiler profile loaded when 'PROFILE' is set.
+
+
+SEE ALSO
+--------
+*lpm*(1), *PKGBUILD*(5)

@@ -5,7 +5,7 @@ CFLAGS  = -Wall -Wextra -O2 -Iinclude
 # Bump SOVERSION when ABI breaks (new/removed symbols, struct layout change)
 # Bump VERSION for any other change
 SOVERSION   = 1
-VERSION     = 2.0.0
+VERSION     = 2.1.0
 
 # ── libllpm source files ──────────────────────────────────────────────
 LLPM_LIB_SRCS = \
@@ -33,7 +33,7 @@ SRCS = src/main.c src/util.c src/db.c src/pkgbuild.c \
        src/config.c src/download.c src/checksum.c src/sha256.c \
        src/transaction.c src/merge.c src/safety.c src/key.c src/profile.c \
        src/pkgbuild_parser.c src/recommend.c src/sync.c src/lpkg.c \
-       src/buildmeta.c src/dryrun.c src/verify.c src/audit.c
+       src/buildmeta.c src/dryrun.c src/verify.c src/audit.c src/ui.c
 
 TARGET = lpm
 
@@ -49,7 +49,7 @@ RUNTIME_DIRS = \
     /etc/lpm
 
 # ── build rules ───────────────────────────────────────────────────────
-.PHONY: all install uninstall clean
+.PHONY: all install uninstall clean test test-asan manpages clean-doc
 
 all: $(LIBLLPM_SO) $(LIBLLPM_A) $(TARGET)
 
@@ -75,7 +75,7 @@ $(TARGET): $(SRCS) $(LIBLLPM_SO)
 	    -Wl,-rpath,/usr/lib
 
 # ── install ───────────────────────────────────────────────────────────
-install: all
+install: all manpages
 	@for d in $(RUNTIME_DIRS); do \
 	    install -dm755 "$$d"; \
 	done
@@ -103,6 +103,10 @@ install: all
 	# shell completions
 	install -Dm644 completions/_lpm          /usr/share/zsh/site-functions/_lpm
 	install -Dm644 completions/lpm.bash      /usr/share/bash-completion/completions/lpm
+	# man pages
+	install -Dm644 lpm.1       $(DESTDIR)/usr/share/man/man1/lpm.1
+	install -Dm644 lpm.conf.5  $(DESTDIR)/usr/share/man/man5/lpm.conf.5
+	install -Dm644 PKGBUILD.5  $(DESTDIR)/usr/share/man/man5/PKGBUILD.5
 
 # ── uninstall ─────────────────────────────────────────────────────────
 uninstall:
@@ -122,9 +126,73 @@ uninstall:
 	rmdir --ignore-fail-on-non-empty /usr/include/llpm 2>/dev/null || true
 	rm -f /usr/share/zsh/site-functions/_lpm
 	rm -f /usr/share/bash-completion/completions/lpm
+	rm -f /usr/share/man/man1/lpm.1
+	rm -f /usr/share/man/man5/lpm.conf.5
+	rm -f /usr/share/man/man5/PKGBUILD.5
+
+# ── man pages ─────────────────────────────────────────────────────────
+# pacman-style: AsciiDoc sources compiled with asciidoctor (Ruby).
+# Requires `asciidoctor` (gem install asciidoctor) on the build host.
+DESTDIR     ?=
+ASCIIDOCTOR ?= asciidoctor
+MANPAGES     = lpm.1 lpm.conf.5 PKGBUILD.5
+MAN_SRCS     = doc/lpm.1.asciidoc doc/lpm.conf.5.asciidoc doc/PKGBUILD.5.asciidoc
+
+manpages: $(MANPAGES)
+
+$(MANPAGES): %: doc/%.asciidoc
+	@command -v $(ASCIIDOCTOR) >/dev/null 2>&1 || { \
+	    echo "asciidoctor not found — install it (e.g. 'gem install asciidoctor') to build man pages"; exit 1; }
+	$(ASCIIDOCTOR) -b manpage -a revnumber=$(VERSION) -o $@ $<
+
+clean-doc:
+	rm -f $(MANPAGES)
+
+# ── tests ───────────────────────────────────────────────────────────────
+TEST_BINS = tests/test_config tests/test_copy tests/test_ui
+
+test: $(TEST_BINS)
+	@echo "== static g_cfg single-source guard =="
+	@if grep -rn "LpmConfig cfg;" src/*.c | grep -v "src/config.c"; then \
+	    echo "FAIL: divergent local config struct — handlers must read g_cfg"; exit 1; \
+	fi
+	@if grep -rn "lpm_config_load" src/*.c | grep -v "src/config.c"; then \
+	    echo "FAIL: lpm_config_load called outside config.c"; exit 1; \
+	fi
+	@echo "  ok: g_cfg written only by lpm_config_init()"
+	@echo "== runtime config regression test =="
+	@./tests/test_config
+	@echo "== copy / .lpkg round-trip regression test =="
+	@./tests/test_copy
+	@echo "== atomic output writer (no interleaving) test =="
+	@./tests/test_ui
+
+tests/test_config: tests/test_config.c src/config.c src/util.c src/ui.c include/lpm.h
+	$(CC) $(CFLAGS) -o $@ tests/test_config.c src/config.c src/util.c src/ui.c -lpthread
+
+tests/test_copy: tests/test_copy.c src/sha256.c src/util.c src/ui.c include/lpm.h
+	$(CC) $(CFLAGS) -o $@ tests/test_copy.c src/sha256.c src/util.c src/ui.c -lpthread
+
+tests/test_ui: tests/test_ui.c src/ui.c src/util.c include/lpm.h
+	$(CC) $(CFLAGS) -o $@ tests/test_ui.c src/ui.c src/util.c -lpthread
+
+test-asan:
+	$(CC) $(CFLAGS) -fsanitize=address,undefined -fno-omit-frame-pointer -g -O1 \
+	    -o tests/test_config tests/test_config.c src/config.c src/util.c src/ui.c -lpthread
+	$(CC) $(CFLAGS) -fsanitize=address,undefined -fno-omit-frame-pointer -g -O1 \
+	    -o tests/test_copy tests/test_copy.c src/sha256.c src/util.c src/ui.c -lpthread
+	$(CC) $(CFLAGS) -fsanitize=address,undefined -fno-omit-frame-pointer -g -O1 \
+	    -o tests/test_ui tests/test_ui.c src/ui.c src/util.c -lpthread
+	@echo "== ASAN/UBSAN: config =="
+	@./tests/test_config
+	@echo "== ASAN/UBSAN: copy round-trip =="
+	@./tests/test_copy
+	@echo "== ASAN/UBSAN: atomic writer =="
+	@./tests/test_ui
 
 # ── clean ─────────────────────────────────────────────────────────────
 clean:
 	rm -f $(TARGET)
 	rm -f $(LIBLLPM_SO) $(LIBLLPM_A) libllpm.so
 	rm -f src/libllpm/*.o src/libllpm/*.pic.o
+	rm -f $(TEST_BINS)

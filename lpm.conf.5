@@ -1,0 +1,223 @@
+'\" t
+.\"     Title: lpm.conf
+.\"    Author: [see the "AUTHOR(S)" section]
+.\" Generator: Asciidoctor 2.0.26
+.\"      Date: 2026-09-09
+.\"    Manual: lpm Manual
+.\"    Source: lpm 2.0.0
+.\"  Language: English
+.\"
+.TH "LPM.CONF" "5" "2026-09-09" "lpm 2.0.0" "lpm Manual"
+.ie \n(.g .ds Aq \(aq
+.el       .ds Aq '
+.ss \n[.ss] 0
+.nh
+.ad l
+.de URL
+\fI\\$2\fP <\\$1>\\$3
+..
+.als MTO URL
+.if \n[.g] \{\
+.  mso www.tmac
+.  am URL
+.    ad l
+.  .
+.  am MTO
+.    ad l
+.  .
+.  LINKSTYLE blue R < >
+.\}
+.SH "NAME"
+lpm.conf \- Lotus Package Manager configuration file
+.SS "SYNOPSIS"
+.sp
+/etc/lpm/lpm.conf
+.SS "DESCRIPTION"
+.sp
+\fIlpm.conf\fP is the single configuration file read by \fBlpm\fP(1). It is a simple
+\fIkey = value\fP text file with a fixed key set; lines are \fIkey = value\fP pairs,
+\fI#\fP starts a comment to end of line, and blank lines are ignored. Surrounding
+single or double quotes around a value are stripped. Both \fIkey=value\fP and
+\fIkey = value\fP spacing are accepted, though the canonical Lotus style puts
+spaces around \fI=\fP.
+.sp
+The file is read once, through \fIlpm_config_init()\fP, which populates the
+in\-memory config before any command runs. An optional compiler profile is
+consulted too (see \fIPROFILE\fP).
+.sp
+The repository set is \fBnot\fP configured here: \fIlpm\fP fetches from a fixed,
+compiled\-in list of repositories (\fIbase\fP, \fIextra\fP, \fIlotus\fP). \fI[base]\fP /
+\fI[extra]\fP / \fI[lotus]\fP section headers are \fBnot\fP parsed by the current config
+reader and have no effect.
+.SS "SYNTAX"
+.sp
+.if n .RS 4
+.nf
+.fam C
+# comment
+CFLAGS = \-O2 \-pipe
+JOBS = 0
+CriticalPkg = musl gcc
+CriticalPkg = bash coreutils
+.fam
+.fi
+.if n .RE
+.sp
+A key appearing on multiple lines is handled per\-key: \fICriticalPkg\fP and
+\fIIgnorePkg\fP \fIaccumulate\fP across lines; scalar keys take the last value seen.
+.SS "OPTIONS"
+.SS "Build environment"
+.sp
+\fICFLAGS\fP
+.RS 4
+Type: string. Default: \f(CR\-O2 \-pipe \-fstack\-protector\-strong \-D_FORTIFY_SOURCE=2\fP.
+Flags passed to the C compiler during \fIbuild()\fP.
+.RE
+.sp
+\fICXXFLAGS\fP
+.RS 4
+Type: string. Default: as \fICFLAGS\fP. Flags for the C++ compiler.
+.RE
+.sp
+\fILDFLAGS\fP
+.RS 4
+Type: string. Default: \f(CR\-Wl,\-z,relro,\-z,now\fP. Flags for the linker.
+.RE
+.sp
+\fIMAKEFLAGS\fP
+.RS 4
+Type: string. Default: \fI(empty)\fP (the shipped file sets \f(CR\-j4\fP). Extra
+flags passed to \fImake\fP.
+.RE
+.sp
+\fICC\fP
+.RS 4
+Type: string. Default: \fIgcc\fP. C compiler.
+.RE
+.sp
+\fICXX\fP
+.RS 4
+Type: string. Default: \fIg\f(CR\fP. C\fP compiler.
+.RE
+.sp
+\fIJOBS\fP
+.RS 4
+Type: integer. Default: \fI0\fP (= automatic, \fInproc\fP). Parallel build jobs.
+Negative values are clamped to \fI0\fP.
+.RE
+.SS "Paths"
+.sp
+\fIBUILDDIR\fP
+.RS 4
+Type: path. Default: \fI/var/cache/lpm\fP. Build workspace root.
+.RE
+.sp
+\fIPKGDEST\fP
+.RS 4
+Type: path. Default: \fI/var/cache/lpm\fP. Where finished package archives go.
+.RE
+.sp
+\fISRCDEST\fP
+.RS 4
+Type: path. Default: \fI/var/cache/lpm\fP. Downloaded source cache.
+.RE
+.sp
+\fILOGDIR\fP
+.RS 4
+Type: path. Default: \fI/var/log/lpm\fP. Per\-package build logs. Legacy alias
+\fILogDir\fP is also accepted.
+.RE
+.sp
+\fIFILESDIR\fP
+.RS 4
+Type: path. Default: \fI/var/lib/lpm/files\fP. File\-ownership database root.
+Legacy alias \fIFilesDir\fP is also accepted.
+.RE
+.SS "Download"
+.sp
+\fIDOWNLOADER\fP
+.RS 4
+Type: \fIauto\fP, \fIwget\fP, or \fIcurl\fP. Default: \fIauto\fP. \fBauto\fP probes for
+\fIwget\fP then \fIcurl\fP.
+.RE
+.sp
+\fIPARALLEL_DL\fP
+.RS 4
+Type: bool (\fI1\fP/\fI0\fP). Default: \fI1\fP. Download multiple files concurrently.
+.RE
+.sp
+\fIMAX_DL_THREADS\fP
+.RS 4
+Type: integer, clamped to \fI1\-16\fP. Default: \fI4\fP. Maximum concurrent
+download threads when \fIPARALLEL_DL\fP is enabled.
+.RE
+.sp
+\fIVERIFY_SIG\fP
+.RS 4
+Type: bool. Default: \fI0\fP. When \fI1\fP, verify detached GPG signatures on
+repository databases and \fI.lpkg\fP archives (missing or bad signatures
+abort with \fISignature verification failed.\fP). When \fI0\fP, a present\-but
+invalid signature still fails, but an absent one is tolerated.
+.RE
+.SS "Build behaviour"
+.sp
+\fIKEEP_SRC\fP
+.RS 4
+Type: bool. Default: \fI0\fP. Keep the extracted source tree after a build.
+.RE
+.sp
+\fIKEEP_PKG\fP
+.RS 4
+Type: bool. Default: \fI0\fP. Keep the staging (pkg) directory after install.
+Also controls debug\-symbol stripping of staged files.
+.RE
+.sp
+\fICHECK_SPACE\fP
+.RS 4
+Type: bool. Default: \fI1\fP. Warn/abort when free disk space is low before a
+build or install.
+.RE
+.sp
+\fICOLOR\fP
+.RS 4
+Type: bool. Default: \fI1\fP. ANSI\-colored terminal output.
+.RE
+.sp
+\fICONFIRM\fP
+.RS 4
+Type: bool. Accepted by the parser but not present in the shipped file;
+interactive confirmation is normally controlled by the \fI\-\-no\-confirm\fP CLI
+flag rather than config.
+.RE
+.sp
+\fIPROFILE\fP
+.RS 4
+Type: string. Default: \fIgeneric\fP. If set, \fIlpm\fP additionally loads
+\fI/etc/lpm/profiles/<PROFILE>.conf\fP and applies its keys on top.
+.RE
+.SS "Package protection"
+.sp
+\fICriticalPkg\fP
+.RS 4
+Type: list of names (space\- or comma\-separated, accumulating across
+lines). Packages \fIremove\fP refuses to touch without \fI\-\-force\fP.
+.RE
+.sp
+\fIIgnorePkg\fP
+.RS 4
+Type: list of names (as above). Packages skipped during \fIupgrade\fP.
+.RE
+.SS "FILES"
+.sp
+\fI/etc/lpm/lpm.conf\fP
+.RS 4
+The configuration file.
+.RE
+.sp
+\fI/etc/lpm/profiles/<name>.conf\fP
+.RS 4
+Optional compiler profile loaded when \fIPROFILE\fP is set.
+.RE
+.SS "SEE ALSO"
+.sp
+\fBlpm\fP(1), \fBPKGBUILD\fP(5)

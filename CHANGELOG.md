@@ -1,5 +1,61 @@
 # Changelog
 
+## [2.1.0] — 2026-09-09
+
+Backward-compatible release: bug fixes plus additive functionality (new
+`lpm_config_init()` entry point, the `ui.c` atomic output writer, the runtime
+UX contract, and man pages). No public API/ABI break — `LpmConfig` layout and
+all existing function signatures are unchanged — so a **minor** bump, not
+major. `libllpm` sources are untouched, so `SOVERSION` and `LLPM_LIB_VERSION`
+stay at `1` / `2.0.0`.
+
+### Fixed
+
+- **`g_cfg` never populated** — the global config was declared but no code path
+  ever wrote it; every read in `download.c`/`sync.c`/`lpkg.c`/`safety.c` saw a
+  zeroed struct (parallel downloads and `VERIFY_SIG` silently off, build_dir
+  empty), while each handler loaded a divergent local `LpmConfig` copy. Added
+  `lpm_config_init()` as the single canonical write path, called once from
+  `main()` before dispatch, and converted all divergent local copies
+  (`build.c`×6 incl. a dead load in `cmd_bootstrap`, `sync.c`×2, `lpkg.c`,
+  `profile.c`) to read `g_cfg`. Regression: `tests/test_config.c`.
+- **`.lpkg` pack failure** — `lpkg.c` invoked `bsdtar -czf … --zstd`, which
+  bsdtar rejects (`-z` conflicts with `--zstd`), failing every pack on
+  bsdtar-equipped hosts. Now `bsdtar -cf … --zstd`.
+- **Path truncation** (`verify.c`, `merge.c`) — fixed-size path buffers were
+  silently truncated (8191→4096); replaced with bounds-checked copies that
+  reject over-long paths rather than verifying/rolling back the wrong file.
+  All `-Wstringop-truncation` warnings cleared.
+
+### Added
+
+- **Runtime UX contract** — transactional commands (`install`/`remove`/
+  `upgrade`/`bootstrap`) share one shape (resolve → tagged package table →
+  confirm → `:: Importing key…/Verifying signatures…` → `(N/M)
+  Installing/Building name-ver` → `Transaction complete.`); non-transactional
+  commands (`update`/`cache`/`search`/`info`/`deps`/`list`/`owns`/`files`/
+  `orphans`/`verify`/`test`/`audit`/`key`) each given a purpose-fit format.
+  Cache reclaim now reads "Reclaimed"; a fixed error vocabulary replaces every
+  banned phrase (`Cannot continue.`, `There is nothing to do.`, etc.).
+- **`ui.c`** — shared atomic output writer (`ui_out`/`ui_err`/`ui_dbg`); the
+  `DBG` macro now routes through it, so `--debug` output and per-package
+  `(N/M)` execution lines serialize under one mutex (verified by
+  `tests/test_ui.c`: 8 threads × 200 lines, zero interleaving).
+- **`deps`** now prints a real box-drawing dependency tree.
+- **Man pages** (pacman-style AsciiDoc, built with `asciidoctor`):
+  `doc/lpm.1.asciidoc`, `doc/lpm.conf.5.asciidoc`, `doc/PKGBUILD.5.asciidoc`,
+  wired into the Makefile (`manpages`/`clean-doc`, `install`/`uninstall`).
+- **Regression tests** `tests/` with `make test` / `make test-asan`
+  (config, `.lpkg` round-trip incl. >64 KiB / 0 / exactly-64 KiB boundary
+  files, atomic writer), plus a static single-source guard for `g_cfg`.
+
+### Notes
+
+- `verify` confirmed read-only — it never repairs/rewrites files.
+- Known deviations flagged for review: `list`/`owns` print `name-ver` without
+  a repo prefix (repo isn't stored in the installed DB); man-page rendering
+  is unbuilt in this environment (no `asciidoctor` present).
+
 ## [2.0.0] — 2026-07-23
 
 ### Changed — configuration modernization (BREAKING for docs/layout)

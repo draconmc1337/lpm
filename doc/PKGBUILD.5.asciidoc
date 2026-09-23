@@ -1,0 +1,230 @@
+PKGBUILD(5)
+===========
+:doctype: manpage
+:man manual: lpm Manual
+:man source: lpm {revnumber}
+:leveloffset: 1
+
+NAME
+----
+PKGBUILD - Lotus Package Definition File (LPDF v1)
+
+
+DESCRIPTION
+-----------
+A 'PKGBUILD' is the file *lpm*(1) builds a package from. Lotus uses a single
+definition format -- 'LPDF v1' -- with no legacy syntax, no fallback format,
+and no migration path: a PKGBUILD that does not follow this spec simply fails
+to parse.
+
+The file is a bash script. 'lpm' reads its fields with a fast native C parser
+first; 'bash' is only actually executed for the 'build()', 'check()', and
+'package()' functions (and as a fallback parser if the fast parser cannot read
+the file).
+
+Canonical key style is 'key = "value"' (spaces around '='). 'key="value"' is
+also accepted but is not the documented form.
+
+The PKGBUILD for a package named 'foo' is stored on disk as 'pkgbuild_foo'.
+
+
+FILE RULES
+----------
+* Comments run from '#' to end of line, as in bash.
+* '$++{++pkgver}' and '$++{++pkgname}' may be used inside string values and
+  array elements, expanded against values already defined 'earlier' in the same
+  file. Forward references do not work.
+* Field order does not matter to the parser, except that a variable must be
+  assigned before another value expands it with '$++{++...}'.
+
+
+SCALAR FIELDS
+-------------
+'pkgname' (required)::
+	Package name. Lowercase ASCII 'a-z', digits, '-' and '_' only; must start
+	with a letter or digit. 'lpm' matches dependency names with a
+	case-sensitive 'strcmp()', so "Foo" and "foo" are unrelated and a
+	mis-cased name silently never resolves.
+
+'pkgver' (required)::
+	Upstream version, and nothing else. Digits, letters, '.' and '-' only. 'No'
+	'v'/'V' prefix (strip 'v1.2.2' to '1.2.2'): 'version_compare()' splits on
+	'.' and '-' and a stray 'v' breaks the comparison. Epochs are supported as
+	'epoch:version' (e.g. '2:1.2.2') and compared numerically first; use only
+	when upstream's scheme breaks ordering.
+
+'pkgrel' (required)::
+	Packaging revision -- a positive integer as a string ("1", "2", ...); no
+	decimals, letters, or leading zeroes. Bump this (not 'pkgver') when you
+	change the PKGBUILD itself; reset to "1" when 'pkgver' changes.
+
+'pkgdesc' (recommended)::
+	One-line description. No trailing period.
+
+'license' (recommended)::
+	SPDX identifier or short name ('MIT', 'GPL-3.0-only', 'Apache-2.0'). Single
+	value; for multi-licensed software pick the binding one.
+
+'pkgtype' (optional)::
+	"source" (default) or "binary". Anything else is treated as "source".
+	'binary' tells 'lpm' to fetch a prebuilt '.lpkg' instead of running
+	'build()'/'package()'.
+
+
+ARRAY FIELDS
+------------
+Bash arrays; 'omit any you don't need' -- absent is the same as empty.
+Elements are separated by whitespace (a comma or semicolon between them is
+tolerated but never required). Limits: 128 for the dependency/metadata arrays,
+64 for 'backup'.
+
+'depends'::
+	Runtime dependencies. Element is "name" or "name>=ver", "name<=ver",
+	"name=ver". Only '>=', '<=', and '=' are supported; strict '>' and '<' are
+	not (use '>='/'<=', or omit the operator for "any version").
+
+'makedepends'::
+	Build-time-only dependencies. Not required at runtime.
+
+'recommends'::
+	Soft dependencies: offered at 'install' time, never force-installed, never
+	blocking if absent.
+
+'conflicts'::
+	Packages that cannot be installed alongside this one.
+
+'provides'::
+	Virtual capability names this package satisfies.
+
+'replaces'::
+	Old package name(s) this package supersedes (rename support).
+
+'groups'::
+	Arbitrary bulk-operation tags (e.g. "toolchain"). Not used for dependency
+	resolution.
+
+'backup'::
+	Config file paths, 'relative to the install root', that survive
+	upgrades/reinstalls instead of being overwritten.
+
+
+SOURCES AND CHECKSUMS
+---------------------
+'sources' and 'checksums' are 'positionally paired' arrays: 'checksums[i]'
+describes 'sources[i]', same index, no exceptions. Insert a new checksum at the
+same position you insert a new source; appending one at the end pairs it with
+the wrong source.
+
+....
+sources = (
+    "https://example.org/foo-${pkgver}.tar.xz"
+    "patches/musl-fix.patch"
+)
+
+checksums = (
+    "sha512:aabbcc...."
+    "SKIP"
+)
+....
+
+* Each 'sources' element is a full URL (fetched over the network) or a path
+  relative to the PKGBUILD's directory (used as-is -- typically a patch). The
+  parser never rewrites these strings.
+* Each 'checksums' element is one of: 'sha512:<128 hex>', 'sha256:<64 hex>',
+  'md5:<32 hex>', or 'SKIP' (explicitly unverified -- for your own patch files,
+  never for upstream tarballs). The algorithm is read 'entirely from the
+  prefix'; there is no auto-detection by length.
+* A missing checksum (fewer entries than sources) is treated as unverified with
+  a warning -- not a hard error. Do not rely on this.
+* Up to 32 entries in each of 'sources' / 'checksums'.
+
+'Removed, never coming back:' 'source', 'source2', 'source3', 'sha256sums',
+'sha512sums', 'md5sums'. A PKGBUILD using any of those has 'zero'
+sources/checksums as far as 'lpm' is concerned -- a silent empty result, not a
+warning.
+
+
+BUILD FUNCTIONS
+---------------
+'build()' (optional)::
+	Compile. Runs unprivileged in '$srcdir'. Omit for packages needing no
+	build step.
+
+'check()' (optional)::
+	Test suite. Runs unprivileged. Informational unless '--strict' makes a
+	failure fatal, or unless run explicitly via 'lpm test'.
+
+'package()' (required)::
+	Stage the final install tree into '$pkgdir' (e.g. 'make DESTDIR="$pkgdir"
+	install'). This is the only function 'lpm' requires -- everything installed
+	comes from what ends up under '$pkgdir'.
+
+Inside these functions the available variables are '$srcdir' (extracted
+sources), '$pkgdir' (staging root), and '$++{++pkgname}' / '$++{++pkgver}' /
+'$++{++pkgrel}'.
+
+Each of 'build()', 'check()', and 'package()' runs with the working directory
+reset to the build workspace root 'independently': never assume shell state
+(such as a 'cd') carries from one function to the next. For out-of-tree builds,
+create the build directory inside 'build()' and 'cd' into the same relative
+path again at the top of 'check()' / 'package()'.
+
+'uninstall()' is 'not' supported. 'lpm' detects it for diagnostics but never
+calls it; removal is handled entirely through the recorded file list.
+
+
+EXAMPLE
+-------
+....
+# Lotus Package Definition File (LPDF v1)
+# Filename: PKGBUILD
+# Encoding: UTF-8
+
+pkgname = "hello"
+pkgver  = "2.12.1"
+pkgrel  = "1"
+pkgdesc = "The GNU Hello package"
+license = "GPL-3.0"
+
+pkgtype     = "source"
+depends     = ("musl" "busybox")
+makedepends = ("gcc" "make")
+recommends  = ("man-pages")
+conflicts   = ("hello-bin")
+provides    = ("virtual-hello")
+replaces    = ("hello-old")
+groups      = ("gnu-utils")
+backup      = ("etc/hello.conf")
+
+sources = (
+    "https://ftp.gnu.org/gnu/hello/hello-2.12.1.tar.gz"
+    "hello-fix-musl.patch"
+)
+
+checksums = (
+    "sha256:8d99142afd92576f30b0cd7cb42a8dc6809998bc5d607d88761f512e26c7db20"
+    "SKIP"
+)
+
+build() {
+    cd "hello-${pkgver}"
+    patch -p1 < ../hello-fix-musl.patch
+    ./configure --prefix=/usr
+    make
+}
+
+check() {
+    cd "hello-${pkgver}"
+    make check
+}
+
+package() {
+    cd "hello-${pkgver}"
+    make DESTDIR="$pkgdir" install
+}
+....
+
+
+SEE ALSO
+--------
+*lpm*(1), *lpm.conf*(5)

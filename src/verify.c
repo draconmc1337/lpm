@@ -24,6 +24,23 @@
 
 #define VERIFY_MAX_ISSUES 32
 
+/*
+ * path_copy — bounded copy of a path field into a fixed buffer.
+ *
+ * Returns 0 on success, -1 if src does not fit (i.e. the copy would
+ * truncate). Callers that are about to lstat()/open() the destination MUST
+ * reject on -1 rather than proceed with a silently-truncated path: verifying
+ * a truncated path checks the wrong file (or a nonexistent one), which is a
+ * correctness/security bug, not a cosmetic one. This is the same
+ * fixed-path-buffer-truncation class flagged by -Wstringop-truncation.
+ */
+static int path_copy(char *dst, size_t dstsz, const char *src) {
+    size_t n = strlen(src);
+    if (n + 1 > dstsz) return -1;
+    memcpy(dst, src, n + 1);
+    return 0;
+}
+
 typedef struct {
     int total;
     int missing;
@@ -70,7 +87,8 @@ static int verify_package(const char *pkgname, VerifyResult *r) {
             if (lstat(line, &st) != 0) {
                 r->missing++;
                 if (r->n_missing_paths < VERIFY_MAX_ISSUES)
-                    strncpy(r->missing_paths[r->n_missing_paths++], line, LPM_PATH_MAX - 1);
+                    path_copy(r->missing_paths[r->n_missing_paths++],
+                              LPM_PATH_MAX, line);
             }
         }
         fclose(flist);
@@ -91,7 +109,12 @@ static int verify_package(const char *pkgname, VerifyResult *r) {
 
         char *p = line;
         char *tab1 = strchr(p, '\t'); if (!tab1) continue; *tab1 = '\0';
-        strncpy(path, p, sizeof(path) - 1);
+        if (path_copy(path, sizeof(path), p) != 0) {
+            fprintf(stderr, C_RED "error:" C_RESET
+                " %s: manifest path too long (>%zu bytes) — refusing to "
+                "verify a truncated path\n", pkgname, sizeof(path) - 1);
+            continue;
+        }
         p = tab1 + 1;
 
         char *tab2 = strchr(p, '\t'); if (!tab2) continue; *tab2 = '\0';
@@ -118,7 +141,8 @@ static int verify_package(const char *pkgname, VerifyResult *r) {
         if (lstat(path, &st) != 0) {
             r->missing++;
             if (r->n_missing_paths < VERIFY_MAX_ISSUES)
-                strncpy(r->missing_paths[r->n_missing_paths++], path, LPM_PATH_MAX - 1);
+                path_copy(r->missing_paths[r->n_missing_paths++],
+                          LPM_PATH_MAX, path);
             continue;
         }
 
@@ -128,7 +152,8 @@ static int verify_package(const char *pkgname, VerifyResult *r) {
             if (sha256_file(path, actual) == 0 && strcmp(actual, sha) != 0) {
                 r->modified++;
                 if (r->n_modified_paths < VERIFY_MAX_ISSUES)
-                    strncpy(r->modified_paths[r->n_modified_paths++], path, LPM_PATH_MAX - 1);
+                    path_copy(r->modified_paths[r->n_modified_paths++],
+                              LPM_PATH_MAX, path);
             }
         }
 
@@ -157,78 +182,63 @@ static int verify_package(const char *pkgname, VerifyResult *r) {
 /* ── print full report for a single package ───────────────────────────── */
 static const char *print_package_report(const char *pkgname) {
     VerifyResult r;
+    char *ver = db_get_version(pkgname);
+
+    printf("Verifying %s-%s...\n\n", pkgname, ver ? ver : "");
+
     if (verify_package(pkgname, &r) != 0) {
-        printf(C_YELLOW "Verifying %s..." C_RESET "\n\n", pkgname);
-        printf("  " C_YELLOW "[SKIP]" C_RESET " no file record found\n\n");
-        printf("Result: " C_GRAY "UNKNOWN" C_RESET "\n");
+        printf("Files\n");
+        printf("  %-15s %s\n", "Checksums", "SKIP");
+        printf("  %-15s %s\n", "Permissions", "SKIP");
+        printf("  %-15s %s\n", "Ownership", "SKIP");
+        printf("\nNo file record found for %s.\n", pkgname);
+        free(ver);
         return "UNKNOWN";
     }
 
-    printf("Verifying %s...\n\n", pkgname);
+    int checksums_ok = r.no_meta ? 1 : (r.missing == 0 && r.modified == 0);
+    int perms_ok     = r.no_meta ? 1 : (r.perm_mismatch == 0);
+    int owner_ok     = r.no_meta ? 1 : (r.owner_mismatch == 0);
 
-    /* ── existence ─────────────────────────────────────────────────── */
-    if (r.missing == 0) {
-        printf("[" C_GREEN "OK" C_RESET "]   Files present\n");
-    } else {
-        printf("[" C_RED "FAIL" C_RESET "] Missing files:\n");
-        for (int i = 0; i < r.n_missing_paths; i++)
-            printf("       %s\n", r.missing_paths[i]);
-        if (r.missing > r.n_missing_paths)
-            printf("       ... and %d more\n", r.missing - r.n_missing_paths);
-    }
-
-    /* ── checksum ───────────────────────────────────────────────────── */
-    if (r.no_meta) {
-        printf("[" C_GRAY "SKIP" C_RESET "] Checksums "
-               C_GRAY "(no metadata — installed with older lpm)" C_RESET "\n");
-    } else if (r.modified == 0) {
-        printf("[" C_GREEN "OK" C_RESET "]   Checksums match\n");
-    } else {
-        printf("[" C_RED "FAIL" C_RESET "] Checksum mismatch:\n");
-        for (int i = 0; i < r.n_modified_paths; i++)
-            printf("       %s\n", r.modified_paths[i]);
-        if (r.modified > r.n_modified_paths)
-            printf("       ... and %d more\n", r.modified - r.n_modified_paths);
-    }
-
-    /* ── permissions ───────────────────────────────────────────────── */
-    if (r.no_meta) {
-        printf("[" C_GRAY "SKIP" C_RESET "] Permissions "
-               C_GRAY "(no metadata — installed with older lpm)" C_RESET "\n");
-    } else if (r.perm_mismatch == 0) {
-        printf("[" C_GREEN "OK" C_RESET "]   Permissions match\n");
-    } else {
-        printf("[" C_RED "FAIL" C_RESET "] Permission mismatch:\n");
-        for (int i = 0; i < r.n_perm_msgs; i++)
-            printf("       %s\n", r.perm_msgs[i]);
-    }
-
-    /* ── ownership ─────────────────────────────────────────────────── */
-    if (r.no_meta) {
-        printf("[" C_GRAY "SKIP" C_RESET "] Ownership "
-               C_GRAY "(no metadata — installed with older lpm)" C_RESET "\n");
-    } else if (r.owner_mismatch == 0) {
-        printf("[" C_GREEN "OK" C_RESET "]   Ownership matches\n");
-    } else {
-        printf("[" C_RED "FAIL" C_RESET "] Ownership mismatch:\n");
-        for (int i = 0; i < r.n_owner_msgs; i++)
-            printf("       %s\n", r.owner_msgs[i]);
-    }
-
+    printf("Files\n");
+    printf("  %-15s %s\n", "Checksums",
+           r.no_meta ? "SKIP" : (checksums_ok ? C_GREEN "OK" C_RESET
+                                              : C_RED "FAILED" C_RESET));
+    printf("  %-15s %s\n", "Permissions",
+           r.no_meta ? "SKIP" : (perms_ok ? C_GREEN "OK" C_RESET
+                                          : C_RED "FAILED" C_RESET));
+    printf("  %-15s %s\n", "Ownership",
+           r.no_meta ? "SKIP" : (owner_ok ? C_GREEN "OK" C_RESET
+                                          : C_RED "FAILED" C_RESET));
     printf("\n");
 
-    /* ── verdict ───────────────────────────────────────────────────── */
-    const char *verdict;
-    const char *color;
-    if (r.missing > 0)              { verdict = "BROKEN";   color = C_RED;    }
-    else if (r.modified > 0)        { verdict = "MODIFIED"; color = C_RED;    }
-    else if (r.perm_mismatch > 0 ||
-             r.owner_mismatch > 0)  { verdict = "INSECURE"; color = C_YELLOW; }
-    else if (r.no_meta)             { verdict = "PRESENT";  color = C_GRAY;   }
-    else                             { verdict = "VERIFIED"; color = C_GREEN;  }
+    /* detail lines only when something failed */
+    if (r.missing > 0) {
+        for (int i = 0; i < r.n_missing_paths; i++)
+            printf("  missing: %s\n", r.missing_paths[i]);
+        if (r.missing > r.n_missing_paths)
+            printf("  ... and %d more\n", r.missing - r.n_missing_paths);
+    }
+    if (!r.no_meta && r.modified > 0) {
+        for (int i = 0; i < r.n_modified_paths; i++)
+            printf("  modified: %s\n", r.modified_paths[i]);
+        if (r.modified > r.n_modified_paths)
+            printf("  ... and %d more\n", r.modified - r.n_modified_paths);
+    }
+    if (!r.no_meta && (r.perm_mismatch > 0 || r.owner_mismatch > 0)) {
+        for (int i = 0; i < r.n_perm_msgs; i++)
+            printf("  %s\n", r.perm_msgs[i]);
+        for (int i = 0; i < r.n_owner_msgs; i++)
+            printf("  %s\n", r.owner_msgs[i]);
+    }
 
-    printf("Result: %s%s%s\n", color, verdict, C_RESET);
-    return verdict;
+    int pass = (r.missing == 0 && r.modified == 0 &&
+                r.perm_mismatch == 0 && r.owner_mismatch == 0);
+    if (pass) printf("Package integrity verified.\n");
+    else      printf("Package integrity check failed.\n");
+
+    free(ver);
+    return pass ? "VERIFIED" : "FAILED";
 }
 
 /* ── Level 4: dependency consistency ───────────────────────────────────── */

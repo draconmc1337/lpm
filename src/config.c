@@ -130,6 +130,20 @@ int lpm_config_load(const char *path, LpmConfig *cfg) {
     return 0;
 }
 
+/*
+ * lpm_config_init() — the single canonical entry point for populating g_cfg.
+ *
+ * Every command handler that needs configuration must read the global g_cfg,
+ * which is populated exactly once here (called from main() before dispatch).
+ * No handler may declare its own LpmConfig and call lpm_config_load() into it:
+ * that is how g_cfg and the per-handler copies diverged (g_cfg was never
+ * written, so download/sig-verify/disk-space paths silently saw a zeroed
+ * struct regardless of /etc/lpm/lpm.conf).
+ */
+int lpm_config_init(void) {
+    return lpm_config_load(LPM_CONF_FILE, &g_cfg);
+}
+
 int lpm_config_is_critical(const LpmConfig *cfg, const char *pkgname) {
     for (int i = 0; i < cfg->n_critical; i++)
         if (!strcmp(cfg->critical_pkgs[i], pkgname)) return 1;

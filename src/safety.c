@@ -144,11 +144,7 @@ int safety_check_file_conflicts(const char *pkgdir, const char *pkgname,
                 files[i], owner);
         } else {
             fprintf(stderr,
-                "Error:\n\n"
-                "%s already exists\n\n"
-                "Owned by:\n"
-                "%s\n\n"
-                "Cannot continue.\n",
+                "error: %s already exists (owned by %s)\n",
                 files[i], owner);
             conflicts++;
         }
@@ -231,9 +227,7 @@ int safety_check_conflicts(Package **pkgs, int n, const char *root) {
             for (int c = 0; c < q->nconflicts; c++) {
                 if (!strcmp(q->conflicts[c], p->name)) {
                     fprintf(stderr,
-                        "Error:\n\n"
-                        "%s conflicts with %s\n\n"
-                        "Cannot continue.\n",
+                        "error: %s conflicts with %s\n",
                         p->name, q->name);
                     found++;
                 }
@@ -264,11 +258,9 @@ int safety_check_space(Package **pkgs, int n, const char *root) {
                                      ? g_cfg.build_dir : LPM_BUILD_DIR);
     if (free_build >= 0 && free_build < needed_kb) {
         fprintf(stderr,
-            "Error:\n\n"
-            "not enough space in %s\n"
-            "need:  ~%ld MiB\n"
-            "have:   %ld MiB\n\n"
-            "Cannot continue.\n",
+            "Insufficient disk space in %s\n"
+            "  need: ~%ld MiB\n"
+            "  have:  %ld MiB\n",
             g_cfg.build_dir, needed_kb / 1024, free_build / 1024);
         return -1;
     }

@@ -15,7 +15,7 @@
 /* ── dryrun_print ────────────────────────────────────────────────────── */
 void dryrun_print(const DryRun *dr) {
     if (dr->nops == 0) {
-        printf("There is nothing to do.\n");
+        printf("No changes to make.\n");
         return;
     }
 
@@ -67,7 +67,7 @@ void dryrun_print(const DryRun *dr) {
     }
     if (freed > 0) {
         format_size(freed, tmp, sizeof(tmp));
-        printf("Freed space:\n%s\n\n", tmp);
+        printf("Reclaimed:\n%s\n\n", tmp);
     }
     if (installed > 0 || freed > 0) {
         long net = installed - freed;

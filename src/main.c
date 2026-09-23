@@ -259,6 +259,11 @@ int main(int argc, char **argv) {
         }
     }
 
+    /* ── populate the global config exactly once, before any dispatch ── *
+     * lpm_config_init() is the single canonical write path for g_cfg.
+     * Every handler reads g_cfg; none may load their own copy. */
+    lpm_config_init();
+
     /* ── acquire lock for write operations ─── */
     int needs_lock = !is_readonly_cmd(cmd);
     if (needs_lock) {
@@ -338,13 +343,10 @@ int main(int argc, char **argv) {
 
     /* ── cache ───────────────────────────────────────────────────────── */
     else if (!strcmp(cmd, "cache")) {
-        /* lpm cache         → show cache info
-         * lpm cache clean   → clean uninstalled build caches */
-        if (sub_argc > 0 &&
-            (!strcmp(sub_argv[0], "clean") || !strcmp(sub_argv[0], "clear")))
-            cmd_rcc(sub_argc - 1, sub_argv + 1);
-        else
-            cmd_rcc(sub_argc, sub_argv);
+        /* lpm cache         → show cache info (view)
+         * lpm cache clean   → clean uninstalled build caches
+         * cmd_rcc inspects argv[0] to pick view vs clean mode. */
+        cmd_rcc(sub_argc, sub_argv);
     }
 
     /* ── verify ──────────────────────────────────────────────────────── */

@@ -28,78 +28,89 @@ static long dir_size_bytes(const char *path) {
     return total;
 }
 
+/* count cached package dirs + total size under LPM_BUILD_DIR */
+static void cache_stats(int *n_pkgs_out, long *bytes_out) {
+    int npkgs = 0;
+    long total = 0;
+    DIR *d = opendir(LPM_BUILD_DIR);
+    if (d) {
+        struct dirent *ent;
+        while ((ent = readdir(d))) {
+            if (ent->d_name[0] == '.') continue;
+            char sub[MAX_STR];
+            snprintf(sub, sizeof(sub), "%s/%s", LPM_BUILD_DIR, ent->d_name);
+            struct stat st;
+            if (lstat(sub, &st) != 0 || !S_ISDIR(st.st_mode)) continue;
+            npkgs++;
+            total += dir_size_bytes(sub);
+        }
+        closedir(d);
+    }
+    if (n_pkgs_out) *n_pkgs_out = npkgs;
+    if (bytes_out)  *bytes_out  = total;
+}
+
 void cmd_rcc(int argc, char **argv) {
     check_root(); init_dirs();
 
-    if (argc > 0) {
-        /* specific packages */
-        for (int i = 0; i < argc; i++) {
-            char cachedir[MAX_STR];
-            snprintf(cachedir, sizeof(cachedir), "%s/%s", LPM_BUILD_DIR, argv[i]);
-            struct stat st;
-            if (stat(cachedir, &st) != 0) {
-                printf("  " C_YELLOW "%s" C_RESET ": no cache found\n", argv[i]);
-                continue;
-            }
-            long bytes = dir_size_bytes(cachedir);
-            char sz[32];
-            if (bytes > 0) format_size(bytes, sz, sizeof(sz));
-            else           snprintf(sz, sizeof(sz), "0 B");
+    int clean = (argc > 0 &&
+                 (!strcmp(argv[0], "clean") || !strcmp(argv[0], "clear")));
 
-            printf("  Cleaning " C_BOLD "%s" C_RESET " (%s)...", argv[i], sz);
-            fflush(stdout);
-            char rm_cmd[MAX_CMD];
-            snprintf(rm_cmd, sizeof(rm_cmd), "rm -rf '%s'", cachedir);
-            (void)system(rm_cmd);
-            printf(" " C_GREEN "done" C_RESET "\n");
-            lpm_log("Cache removed: %s", argv[i]);
-        }
+    /* ── VIEW: `lpm cache` ─────────────────────────────────────────── */
+    if (!clean) {
+        int npkgs; long bytes;
+        cache_stats(&npkgs, &bytes);
+        char sz[32]; format_size(bytes, sz, sizeof(sz));
+        printf("Build cache\n\n");
+        printf("Packages: %d\n", npkgs);
+        printf("Disk usage: %s\n", sz);
+        printf("Location: %s\n", LPM_BUILD_DIR);
+        printf("\nUse 'lpm cache clean' to remove cached build data.\n");
         return;
     }
 
-    /* no args — clean all uninstalled packages */
-    DIR *d = opendir(LPM_BUILD_DIR);
-    if (!d) { printf("Nothing to clean.\n"); return; }
+    /* ── CLEAN: `lpm cache clean [pkg...]` ─────────────────────────── */
+    int npkgs; long bytes;
+    cache_stats(&npkgs, &bytes);
+    char sz[32]; format_size(bytes, sz, sizeof(sz));
+    printf("Build cache\n\n");
+    printf("Packages: %d\n", npkgs);
+    printf("Disk usage: %s\n\n", sz);
 
-    char *targets[256]; int ntargets = 0;
-    struct dirent *ent;
-    while ((ent = readdir(d)) && ntargets < 256) {
-        if (ent->d_name[0] == '.') continue;
-        if (!db_is_installed(ent->d_name))
-            targets[ntargets++] = strdup(ent->d_name);
+    if (npkgs == 0) { printf("Nothing to clean.\n"); return; }
+
+    if (!confirm("Clean build cache? [Y/n] ")) { printf("Interrupted.\n"); return; }
+
+    printf("\nRemoving cached build data...\n");
+    if (argc > 1) {
+        /* specific packages */
+        for (int i = 1; i < argc; i++) {
+            char cachedir[MAX_STR];
+            snprintf(cachedir, sizeof(cachedir), "%s/%s", LPM_BUILD_DIR, argv[i]);
+            char rm_cmd[MAX_CMD];
+            snprintf(rm_cmd, sizeof(rm_cmd), "rm -rf '%s'", cachedir);
+            (void)system(rm_cmd);
+            lpm_log("Cache removed: %s", argv[i]);
+        }
+    } else {
+        /* all uninstalled package caches */
+        DIR *d = opendir(LPM_BUILD_DIR);
+        if (d) {
+            struct dirent *ent;
+            while ((ent = readdir(d))) {
+                if (ent->d_name[0] == '.') continue;
+                if (db_is_installed(ent->d_name)) continue;
+                char cachedir[MAX_STR], rm_cmd[MAX_CMD];
+                snprintf(cachedir, sizeof(cachedir), "%s/%s", LPM_BUILD_DIR, ent->d_name);
+                snprintf(rm_cmd, sizeof(rm_cmd), "rm -rf '%s'", cachedir);
+                (void)system(rm_cmd);
+                lpm_log("Cache removed: %s", ent->d_name);
+            }
+            closedir(d);
+        }
     }
-    closedir(d);
-
-    if (ntargets == 0) { printf("Nothing to clean.\n"); return; }
-
-    printf("Cache of uninstalled packages (" C_BOLD "%d" C_RESET "):\n", ntargets);
-    int nhidden = 0;
-    for (int i = 0; i < ntargets; i++) {
-        char cachedir[MAX_STR];
-        snprintf(cachedir, sizeof(cachedir), "%s/%s", LPM_BUILD_DIR, targets[i]);
-        long bytes = dir_size_bytes(cachedir);
-        if (bytes == 0) { nhidden++; continue; }
-        char sz[32];
-        format_size(bytes, sz, sizeof(sz));
-        printf("  " C_BOLD "%-24s" C_RESET "  %s\n", targets[i], sz);
-    }
-    if (nhidden > 0)
-        printf("  " C_GRAY "+ %d empty cache dir(s) (0 B, hidden)" C_RESET "\n", nhidden);
-    printf("\n");
-    if (!confirm("Remove cache(s)? [y/N] ")) { printf("Aborted.\n"); goto cleanup; }
-
-    for (int i = 0; i < ntargets; i++) {
-        char cachedir[MAX_STR];
-        snprintf(cachedir, sizeof(cachedir), "%s/%s", LPM_BUILD_DIR, targets[i]);
-        char rm_cmd[MAX_CMD];
-        snprintf(rm_cmd, sizeof(rm_cmd), "rm -rf '%s'", cachedir);
-        (void)system(rm_cmd);
-        lpm_log("Cache removed: %s", targets[i]);
-    }
-    printf(C_CYAN "::" C_RESET " " C_GREEN "Cache cleaned." C_RESET "\n");
-
-cleanup:
-    for (int i = 0; i < ntargets; i++) free(targets[i]);
+    printf("Done.\n\n");
+    printf("Reclaimed %s.\n", sz);
 }
 
 #pragma GCC diagnostic pop

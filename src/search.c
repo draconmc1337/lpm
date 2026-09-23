@@ -70,7 +70,8 @@ static int search_one(const char *pbfile, const char *query_lower) {
            pkg.name,
            pkg.version[0] ? pkg.version : "?");
     if (pkg.description[0])
-        printf("\n%s\n", pkg.description);
+        printf("    %s\n", pkg.description);
+    printf("\n");
     return 1;
 }
 
@@ -134,9 +135,9 @@ void cmd_search(int argc, char **argv) {
             char *dash = strchr(ver, '-');
             if (dash) *dash = '\0';
 
-            printf("%s %s\n", e->name, ver[0] ? ver : e->version);
+            printf("%s/%s %s\n", e->repo, e->name, ver[0] ? ver : e->version);
             if (e->desc[0])
-                printf("\n%s\n", e->desc);
+                printf("    %s\n", e->desc);
             printf("\n");
 
             found++;
@@ -213,10 +214,7 @@ void cmd_info(int argc, char **argv) {
 
         Package pkg;
         if (pkgbuild_parse_fast(pbfile, &pkg) != 0) {
-            fprintf(stderr,
-                    "Error:\n\n"
-                    "No PKGBUILD found for '%s'\n\n"
-                    "Cannot continue.\n", argv[i]);
+            fprintf(stderr, "Package not found: %s\n", argv[i]);
             continue;
         }
 
@@ -235,8 +233,6 @@ void cmd_info(int argc, char **argv) {
                 strncat(recs, pkg.recommends[d], sizeof(recs) - strlen(recs) - 1);
             }
         }
-
-        char *rdeps_str = reverse_deps(argv[i]);
 
         long dl = (long)pkg.dl_size;
         long inst = (long)pkg.inst_size;
@@ -263,25 +259,28 @@ void cmd_info(int argc, char **argv) {
         if (dl > 0)   format_size(dl, sdl, sizeof(sdl));
         if (inst > 0) format_size(inst, sinst, sizeof(sinst));
 
-        printf("%-16s%s\n", "Name", pkg.name);
-        printf("%-16s%s\n", "Version", pkg.version[0] ? pkg.version : "?");
+        char ver[LPM_VER_MAX + 16] = "?";
+        if (pkg.version[0] && pkg.release[0])
+            snprintf(ver, sizeof(ver), "%s-%s", pkg.version, pkg.release);
+        else if (pkg.version[0])
+            snprintf(ver, sizeof(ver), "%s", pkg.version);
+
+        printf("\n");
+        printf("%-16s: %s\n", "Name", pkg.name);
+        printf("%-16s: %s\n", "Version", ver);
         if (repo[0])
-            printf("%-16s%s\n", "Repository", repo);
-        printf("%-16s%s\n", "Architecture", "x86_64");
-        if (sinst[0])
-            printf("%-16s%s\n", "Installed size", sinst);
-        if (sdl[0])
-            printf("%-16s%s\n", "Download size", sdl);
+            printf("%-16s: %s\n", "Repository", repo);
+        printf("%-16s: %s\n", "Architecture", "x86_64");
+        printf("%-16s: %s\n", "Type",
+               pkg.type == PKG_TYPE_BINARY ? "binary" : "source");
         if (pkg.license[0])
-            printf("%-16s%s\n", "License", pkg.license);
+            printf("%-16s: %s\n", "License", pkg.license);
         if (deps[0])
-            printf("%-16s%s\n", "Dependencies", deps);
-        if (recs[0])
-            printf("%-16s%s\n", "Optional", recs);
-        printf("%-16s%s\n", "Required by",
-               rdeps_str[0] ? rdeps_str : "");
-        if (pkg.description[0])
-            printf("%-16s%s\n", "Description", pkg.description);
+            printf("%-16s: %s\n", "Depends On", deps);
+        if (sinst[0])
+            printf("%-16s: %s\n", "Installed Size", sinst);
+        if (sdl[0])
+            printf("%-16s: %s\n", "Download Size", sdl);
         printf("\n");
     }
 }
@@ -302,7 +301,7 @@ void cmd_list(int argc, char **argv) {
     FILE *f = fopen(LPM_DB, "r");
     if (!f) {
         if (count_only) printf("0\n");
-        else            printf("There is nothing to do.\n");
+        else            printf("No packages installed.\n");
         return;
     }
 
@@ -322,19 +321,14 @@ void cmd_list(int argc, char **argv) {
         return;
     }
 
-    if (n == 0) { printf("There is nothing to do.\n"); return; }
+    if (n == 0) { printf("No packages installed.\n"); return; }
 
     /* sort A-Z by pkgname */
     char *ptrs[512];
     for (int i = 0; i < n; i++) ptrs[i] = lines[i];
     qsort(ptrs, n, sizeof(char *), cmp_str);
 
-    int name_w = 8;
-    for (int i = 0; i < n; i++) {
-        char *eq = strchr(ptrs[i], '=');
-        int len = eq ? (int)(eq - ptrs[i]) : (int)strlen(ptrs[i]);
-        if (len > name_w) name_w = len;
-    }
+    printf("Installed packages (%d)\n\n", n);
 
     for (int i = 0; i < n; i++) {
         char name[MAX_STR], ver[MAX_STR];
@@ -349,7 +343,7 @@ void cmd_list(int argc, char **argv) {
             snprintf(name, sizeof(name), "%s", ptrs[i]);
             snprintf(ver, sizeof(ver), "-");
         }
-        printf("%-*s  %s\n", name_w, name, ver);
+        printf("%s-%s\n", name, ver);
     }
 }
 /* ═══════════════════════════════════════════════════════════════════════
@@ -449,22 +443,27 @@ void cmd_orphans(int argc, char **argv) {
     }
 
     /* orphans = installed as DEP + not needed by anyone */
+    int orphans[512];
     int norphans = 0;
     for (int i = 0; i < n; i++) {
         if (all[i].reason != REASON_DEP) continue;
         if (needed[i]) continue;
-
-        if (norphans == 0)
-            printf("Unused dependencies:\n\n");
-
-        printf("%s\n", all[i].name);
+        if (norphans < 512) orphans[norphans] = i;
         norphans++;
     }
 
-    if (norphans == 0)
-        printf("There is nothing to do.\n");
-    else
-        printf("\n%d unused\n", norphans);
+    if (norphans == 0) {
+        printf("No orphaned packages.\n");
+    } else {
+        printf("Orphaned packages (%d)\n\n", norphans);
+        for (int k = 0; k < norphans && k < 512; k++) {
+            InstalledPkg *ip = &all[orphans[k]];
+            if (ip->release[0])
+                printf("%s-%s-%s\n", ip->name, ip->version, ip->release);
+            else
+                printf("%s-%s\n", ip->name, ip->version);
+        }
+    }
 
     free(needed);
     free(all);
@@ -479,19 +478,18 @@ void cmd_owns(int argc, char **argv) {
         if (!realpath(argv[i], abs))
             snprintf(abs, sizeof(abs), "%s", argv[i]);
 
+        printf("%s\n", argv[i]);
         char owner[LPM_NAME_MAX] = "";
         if (db_query_owner(abs, owner, sizeof(owner)) == 0) {
-            /* also get version for pretty output */
             char *ver = db_get_version(owner);
             if (ver) {
-                printf("%s-%s\n", owner, ver);
+                printf("  owned by %s-%s\n", owner, ver);
                 free(ver);
             } else {
-                printf("%s\n", owner);
+                printf("  owned by %s\n", owner);
             }
         } else {
-            fprintf(stderr, C_RED "error: " C_RESET
-                    "no package owns '%s'\n", abs);
+            printf("  No package owns this file.\n");
         }
     }
 }
@@ -501,12 +499,12 @@ void cmd_files(int argc, char **argv) {
     if (argc == 0) die("No package specified.\nUsage: lpm files <package>");
     for (int i = 0; i < argc; i++) {
         if (!db_is_installed(argv[i])) {
-            fprintf(stderr, C_YELLOW "warning: " C_RESET
-                    "'%s' is not installed\n", argv[i]);
+            fprintf(stderr, "Package is not installed: %s\n", argv[i]);
             continue;
         }
-        if (argc > 1)
-            printf(C_BOLD "%s:\n" C_RESET, argv[i]);
+        char *ver = db_get_version(argv[i]);
+        if (ver) { printf("%s-%s\n\n", argv[i], ver); free(ver); }
+        else     { printf("%s\n\n", argv[i]); }
         db_list_files(argv[i]);
     }
 }

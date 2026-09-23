@@ -1,0 +1,302 @@
+'\" t
+.\"     Title: lpm
+.\"    Author: [see the "AUTHOR(S)" section]
+.\" Generator: Asciidoctor 2.0.26
+.\"      Date: 2026-09-09
+.\"    Manual: lpm Manual
+.\"    Source: lpm 2.0.0
+.\"  Language: English
+.\"
+.TH "LPM" "1" "2026-09-09" "lpm 2.0.0" "lpm Manual"
+.ie \n(.g .ds Aq \(aq
+.el       .ds Aq '
+.ss \n[.ss] 0
+.nh
+.ad l
+.de URL
+\fI\\$2\fP <\\$1>\\$3
+..
+.als MTO URL
+.if \n[.g] \{\
+.  mso www.tmac
+.  am URL
+.    ad l
+.  .
+.  am MTO
+.    ad l
+.  .
+.  LINKSTYLE blue R < >
+.\}
+.SH "NAME"
+lpm \- Lotus Package Manager
+.SS "SYNOPSIS"
+.sp
+\fIlpm\fP <command> [options] [package(s)]
+.SS "DESCRIPTION"
+.sp
+\fIlpm\fP is the package manager for Lotus Linux. It installs, removes, upgrades,
+and queries binary (\f(CR.lpkg\fP) and source packages built from LPDF v1
+\fBPKGBUILD\fP(5) files, resolving dependencies through a DAG resolver and applying
+filesystem changes through a journaled transaction layer that rolls back on
+failure.
+.sp
+\fIlpm\fP understands exactly one configuration file, \f(CR/etc/lpm/lpm.conf\fP
+(see \fBlpm.conf\fP(5)), and one package\-definition format, LPDF v1 (see
+\fBPKGBUILD\fP(5)).
+.sp
+Run \fIlpm\fP <command> \fI\-\-help\fP for a short summary of any command.
+.SS "COMMANDS"
+.sp
+\fIlpm\fP dispatches on the first argument, which must be one of the commands
+below. Only one command may be given at a time.
+.SS "Transaction commands"
+.sp
+These share one output shape: resolve, show a package table, confirm, execute
+with a step counter, then print \fITransaction complete.\fP They require root
+(via \fIdoas\fP or \fIsudo\fP).
+.sp
+\fIinstall\fP <package(s)>
+.RS 4
+Resolve dependencies for the named packages, show the transaction
+summary, and after confirmation fetch, build (source packages) or
+download\-and\-verify (binary packages) and install each one.
+Already\-installed explicit targets are reinstalled.
+.RE
+.sp
+\fIremove\fP <package(s)>
+.RS 4
+Remove installed packages. With \fI\-Rs\fP/\fI\-\-recursive\fP, also remove
+dependencies installed as dependencies that no longer satisfy any
+dependency. Blocked, unless \fI\-\-force\fP, when other installed packages
+depend on a target.
+.RE
+.sp
+\fIupgrade\fP [package(s)]
+.RS 4
+With no arguments, synchronise the package databases and upgrade every
+installed package with a newer version available. With arguments, check
+and upgrade only the named packages. Honours \fIIgnorePkg\fP from
+\fBlpm.conf\fP(5).
+.RE
+.sp
+\fIbootstrap\fP \fI\-C\fP <target> [package(s)]
+.RS 4
+Install a base system into <target>: create the FHS skeleton, write
+stub configuration, synchronise databases, then install the named
+packages (or the built\-in base set). Also invoked as \fIpacstrap\fP.
+.RE
+.SS "Non\-transaction commands"
+.sp
+\fIupdate\fP
+.RS 4
+Synchronise the package databases from the configured repositories. Not
+a transaction: no summary table, no confirmation prompt.
+.RE
+.sp
+\fIsearch\fP <term>
+.RS 4
+Search available packages (name and description) in the synced
+databases, falling back to the local PKGBUILD cache.
+.RE
+.sp
+\fIinfo\fP <package(s)>
+.RS 4
+Show detailed information about package(s): name, version, repository,
+architecture, type, license, dependencies, and sizes.
+.RE
+.sp
+\fIdeps\fP [package(s)]
+.RS 4
+Print the full dependency tree for the named package(s).
+.RE
+.sp
+\fIlist\fP
+.RS 4
+List installed packages. Accepts \fI\-\-count\fP to print only the count.
+.RE
+.sp
+\fIowns\fP <path>
+.RS 4
+Report which installed package owns the given file path.
+.RE
+.sp
+\fIfiles\fP <package>
+.RS 4
+List the files owned by an installed package.
+.RE
+.sp
+\fIorphans\fP
+.RS 4
+List packages installed as dependencies that no longer satisfy any
+dependency (candidates for \fIremove \-Rs\fP).
+.RE
+.sp
+\fIverify\fP [package(s)]
+.RS 4
+Verify installed package integrity against recorded metadata: existence,
+checksums, permissions, ownership. Read\-only \(em \fIverify\fP never repairs
+or rewrites files. With \fI\-\-deps\fP, check dependency consistency instead.
+.RE
+.sp
+\fItest\fP <package(s)>
+.RS 4
+Run a package\(cqs \fIcheck()\fP test suite from its PKGBUILD.
+.RE
+.sp
+\fIaudit\fP
+.RS 4
+Show the transaction history (the audit log). With \fI\-\-raw\fP (back\-compat
+alias \fI\-\-log\fP) dump the unformatted log; with \fI\-\-health\fP show a quick
+orphan/update summary.
+.RE
+.sp
+\fIcache\fP [clean] [package(s)]
+.RS 4
+With no subcommand, show build\-cache statistics. With \fIclean\fP, remove
+cached build data (optionally limited to named packages) after
+confirmation.
+.RE
+.sp
+\fIkey\fP <subcommand> [args]
+.RS 4
+Manage the signing keyring. Subcommands: \fIinit\fP, \fIgenid\fP, \fIlist\fP,
+\fIrecv\fP <keyid>, \fIimport\fP <file>, \fItrust\fP <keyid>.
+.RE
+.sp
+\fIpackage\fP <subcommand> [args]
+.RS 4
+Low\-level package tools. Subcommands: \fIbuild\fP <pkg>, \fIpack\fP <pkg>,
+\fIinstall\fP <pkg.lpkg|name>, \fIquery\fP [pkg.lpkg|name], \fIextract\fP
+<pkg.lpkg|name>, \fIverify\fP <pkg.lpkg|name>, \fIremove\fP <pkg.lpkg|name>.
+.RE
+.sp
+\fIrepo\fP <subcommand>
+.RS 4
+Repository management. Currently a placeholder (\fIlist\fP, \fIadd\fP, \fIremove\fP,
+\fIsync\fP are reserved, not yet implemented).
+.RE
+.sp
+\fI\-V\fP, \fI\-\-version\fP
+.RS 4
+Show \fIlpm\fP and \fIlibllpm\fP versions and exit.
+.RE
+.sp
+\fI\-h\fP, \fI\-\-help\fP
+.RS 4
+Show usage. \fIlpm\fP <command> \fI\-\-help\fP shows command\-specific usage.
+.RE
+.SS "OPTIONS"
+.sp
+These are recognised by the transaction commands and parsed from anywhere in
+their argument list.
+.sp
+\fI\-\-force\fP
+.RS 4
+Override file\- and package\-conflict checks and allow removing
+\fICriticalPkg\fP packages.
+.RE
+.sp
+\fI\-\-no\-confirm\fP
+.RS 4
+Run non\-interactively: never prompt before executing a transaction.
+.RE
+.sp
+\fI\-\-dry\-run\fP, \fI\-n\fP
+.RS 4
+Simulate the transaction and print exactly what would change, with no
+side effects.
+.RE
+.sp
+\fI\-\-no\-check\fP
+.RS 4
+Skip the \fIcheck()\fP phase when building source packages.
+.RE
+.sp
+\fI\-\-no\-recommended\fP
+.RS 4
+Do not offer \fIrecommends\fP soft\-dependencies during \fIinstall\fP.
+.RE
+.sp
+\fI\-\-strict\fP
+.RS 4
+Treat a failing \fIcheck()\fP phase as fatal during a source build.
+.RE
+.sp
+\fI\-Rs\fP, \fI\-\-recursive\fP
+.RS 4
+With \fIremove\fP: also remove now\-unused dependencies.
+.RE
+.sp
+\fI\-\-debug\fP[=\fIN\fP]
+.RS 4
+Enable debug output to stderr. \fIN\fP is \fI1\fP (dep resolution, cache,
+mirrors), \fI2\fP (URLs, checksums), or \fI3\fP (function trace). \fI\-\-debug\fP with
+no value is level 1. \fILPM_DEBUG\fP sets the same baseline; \fI\-\-debug=N\fP
+overrides it.
+.RE
+.SS "FILES"
+.sp
+\fI/etc/lpm/lpm.conf\fP
+.RS 4
+Main configuration file. See \fBlpm.conf\fP(5).
+.RE
+.sp
+\fI/var/lib/lpm/db\fP
+.RS 4
+Synchronised package databases (one file per repository).
+.RE
+.sp
+\fI/var/lib/lpm/files\fP
+.RS 4
+Per\-package file\-ownership records (\fIfiles.list\fP, \fIfiles.meta\fP) used by
+\fIverify\fP, \fIowns\fP, and \fIfiles\fP.
+.RE
+.sp
+\fI/var/cache/lpm\fP
+.RS 4
+Build workspaces, downloaded sources, and built package caches
+(\fIBUILDDIR\fP / \fIPKGDEST\fP / \fISRCDEST\fP).
+.RE
+.sp
+\fI/var/log/lpm\fP
+.RS 4
+Per\-package build logs.
+.RE
+.SS "EXIT CODES"
+.sp
+\fI0\fP
+.RS 4
+Success.
+.RE
+.sp
+\fI1\fP
+.RS 4
+Generic failure \(em bad usage, unmet dependency, conflict, permission
+denied, sync or transaction aborted.
+.RE
+.sp
+\fI130\fP
+.RS 4
+The operation was interrupted (SIGINT/SIGTERM/SIGHUP). The transaction
+journal is rolled back and the lock released.
+.RE
+.SS "NOTES"
+.sp
+\fIlpm\fP takes an exclusive lock for write operations; only one instance may run
+at a time. Interrupting a running transaction prints \fIInterrupted.\fP and
+unwinds any partial changes.
+.sp
+Error conditions use a fixed vocabulary \(em for example \fIPackage not found:
+foo\fP, \fIPackage is not installed: foo\fP, \fINo packages to upgrade.\fP, \fINo
+orphaned packages.\fP, \fIRepository sync failed.\fP, \fISignature verification
+failed.\fP, \fITransaction aborted.\fP, \fIInsufficient disk space.\fP, \fIInterrupted.\fP
+.SS "SEE ALSO"
+.sp
+\fBlpm.conf\fP(5), \fBPKGBUILD\fP(5)
+.SS "BUGS"
+.sp
+Upstream tracker: \c
+.URL "https://github.com/draconmc1337/lpm" "" ""
+.SS "AUTHORS"
+.sp
+See the \fILICENSE\fP and \fICHANGELOG.md\fP in the source tree.

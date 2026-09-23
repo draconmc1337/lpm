@@ -328,143 +328,78 @@ int dep_resolve_queue(const char *pkgname,
     return n;
 }
 
-/* ── print_pkg_list ─────────────────────────────────────────────────────── *
- * Split output into Binary and Source sections.                            *
- * Each entry shows: repo/name-ver  [tag]  constraint_info                  */
-static void print_pkg_list(void) {
-    int n_bin = 0, n_src = 0, n_inst = 0, n_missing = 0, n_upgrade = 0;
-    for (int i = 0; i < nresolved; i++) {
-        DepNode *n = &resolved[i];
-        if (n->installed && !n->ver_too_old) { n_inst++;    continue; }
-        if (!n->has_src)                     { n_missing++; continue; }
-        if (n->ver_too_old)                    n_upgrade++;
-        if (n->is_binary) n_bin++;
-        else              n_src++;
-    }
-    int n_total = n_bin + n_src + n_upgrade;
+/* ── cmd_deptree ─────────────────────────────────────────────────────────── */
 
-    /* ── header ─────────────────────────────────────────────────────── */
-    printf("\n");
-    printf("  " C_BOLD "Packages (%d)" C_RESET, n_total);
-    if (n_bin > 0 && n_src > 0)
-        printf("  " C_BLUE "[%d binary" C_RESET
-               ", " C_YELLOW "%d source" C_RESET "]", n_bin, n_src);
-    else if (n_bin > 0)
-        printf("  " C_BLUE "[%d binary]" C_RESET, n_bin);
-    else if (n_src > 0)
-        printf("  " C_YELLOW "[%d source]" C_RESET, n_src);
-    if (n_upgrade > 0)
-        printf("  " C_CYAN "[%d upgrade]" C_RESET, n_upgrade);
-    printf("\n\n");
+/* Recursively print a package's dependency tree with box-drawing glyphs.
+ * Walks the FULL depends graph (not just unsatisfied deps), so it matches
+ * the `lpm deps` contract. `path`/`pathlen` is the current root-to-node
+ * chain, used to break cycles (a dep already on this branch is printed but
+ * not re-expanded). Prints `name` and then its subtree. */
+static void print_dep_tree(const char *name, const char *prefix,
+                           int is_last, char path[][MAX_STR], int pathlen) {
+    printf("%s%s%s\n", prefix, is_last ? "└─ " : "├─ ", name);
 
-    /* ── binary section ─────────────────────────────────────────────── */
-    int printed_bin_hdr = 0;
-    for (int i = 0; i < nresolved; i++) {
-        DepNode *n = &resolved[i];
-        if (!n->is_binary) continue;
-        if (n->installed && !n->ver_too_old) continue;
-        if (!n->has_src) continue;
+    /* cycle guard: already on this branch → don't expand */
+    for (int i = 0; i < pathlen; i++)
+        if (!strcmp(path[i], name)) return;
+    if (pathlen >= MAX_QUEUE) return;
+    snprintf(path[pathlen], MAX_STR, "%s", name);
 
-        if (!printed_bin_hdr) {
-            printf("  " C_BLUE C_BOLD "Binary:" C_RESET "\n");
-            printed_bin_hdr = 1;
+    char pbfile[MAX_STR];
+    snprintf(pbfile, sizeof(pbfile), "%s/pkgbuild_%s",
+             LPM_PKGBUILD_DIR, name);
+    Package pkg;
+    if (pkgbuild_parse_fast(pbfile, &pkg) != 0) return;
+
+    char child_prefix[MAX_STR];
+    snprintf(child_prefix, sizeof(child_prefix), "%s%s",
+             prefix, is_last ? "   " : "│  ");
+    for (int i = 0; i < pkg.ndepends; i++) {
+        DepSpec dep;
+        dep_parse(pkg.depends[i], &dep);
+        int dup = 0;
+        for (int k = 0; k < i; k++) {
+            DepSpec d2; dep_parse(pkg.depends[k], &d2);
+            if (!strcmp(d2.name, dep.name)) { dup = 1; break; }
         }
-
-        const char *repo = n->folder[0] != '?' ? n->folder : "repo";
-        char ver_note[160] = "";
-        if (n->ver_too_old && n->inst_ver[0] && n->constraint[0])
-            snprintf(ver_note, sizeof(ver_note),
-                     "  " C_YELLOW "%s → %s" C_RESET
-                     " (required by %s)",
-                     n->inst_ver, n->constraint,
-                     n->required_by[0] ? n->required_by : "?");
-        else if (n->constraint[0])
-            snprintf(ver_note, sizeof(ver_note),
-                     "  " C_CYAN "%s" C_RESET
-                     " (required by %s)",
-                     n->constraint,
-                     n->required_by[0] ? n->required_by : "?");
-
-        printf("    " C_BLUE "↓" C_RESET
-               " " C_BOLD "%s" C_RESET "/" C_CYAN "%s" C_RESET
-               "  %s%s\n",
-               repo, n->name,
-               n->ver[0] ? n->ver : "?",
-               ver_note);
+        if (dup) continue;
+        print_dep_tree(dep.name, child_prefix, i == pkg.ndepends - 1,
+                       path, pathlen + 1);
     }
-    if (printed_bin_hdr) printf("\n");
-
-    /* ── source section ─────────────────────────────────────────────── */
-    int printed_src_hdr = 0;
-    for (int i = 0; i < nresolved; i++) {
-        DepNode *n = &resolved[i];
-        if (n->is_binary) continue;
-        if (n->installed && !n->ver_too_old) continue;
-        if (!n->has_src) continue;
-
-        if (!printed_src_hdr) {
-            printf("  " C_YELLOW C_BOLD "Source:" C_RESET "\n");
-            printed_src_hdr = 1;
-        }
-
-        const char *repo = n->folder[0] != '?' ? n->folder : "repo";
-        char ver_note[160] = "";
-        if (n->ver_too_old && n->inst_ver[0] && n->constraint[0])
-            snprintf(ver_note, sizeof(ver_note),
-                     "  " C_YELLOW "%s → %s" C_RESET
-                     " (required by %s)",
-                     n->inst_ver, n->constraint,
-                     n->required_by[0] ? n->required_by : "?");
-        else if (n->constraint[0])
-            snprintf(ver_note, sizeof(ver_note),
-                     "  " C_CYAN "%s" C_RESET
-                     " (required by %s)",
-                     n->constraint,
-                     n->required_by[0] ? n->required_by : "?");
-
-        printf("    " C_YELLOW "⚙" C_RESET
-               " " C_BOLD "%s" C_RESET "/" C_CYAN "%s" C_RESET
-               "  %s%s\n",
-               repo, n->name,
-               n->ver[0] ? n->ver : "?",
-               ver_note);
-    }
-    if (printed_src_hdr) printf("\n");
-
-    /* ── missing ─────────────────────────────────────────────────────── */
-    if (n_missing > 0) {
-        printf("  " C_RED C_BOLD "Not found:" C_RESET "\n");
-        for (int i = 0; i < nresolved; i++) {
-            if (resolved[i].has_src) continue;
-            printf("    " C_RED "✗" C_RESET " %s\n", resolved[i].name);
-        }
-        printf("\n");
-    }
-
-    /* ── summary line ───────────────────────────────────────────────── */
-    printf("  " C_GRAY "download: %d binary  build: %d source"
-           C_RESET "\n\n",
-           n_bin, n_src);
 }
 
-/* ── cmd_deptree ─────────────────────────────────────────────────────────── */
+/* Expand only the ROOT's children (root itself is printed by the caller,
+ * without a glyph, matching the contract's `firefox\n├─ gtk3` shape). */
+static void print_dep_roots_children(const char *name,
+                                     char path[][MAX_STR], int pathlen) {
+    snprintf(path[pathlen], MAX_STR, "%s", name);
+    char pbfile[MAX_STR];
+    snprintf(pbfile, sizeof(pbfile), "%s/pkgbuild_%s",
+             LPM_PKGBUILD_DIR, name);
+    Package pkg;
+    if (pkgbuild_parse_fast(pbfile, &pkg) != 0) return;
+    for (int i = 0; i < pkg.ndepends; i++) {
+        DepSpec dep;
+        dep_parse(pkg.depends[i], &dep);
+        int dup = 0;
+        for (int k = 0; k < i; k++) {
+            DepSpec d2; dep_parse(pkg.depends[k], &d2);
+            if (!strcmp(d2.name, dep.name)) { dup = 1; break; }
+        }
+        if (dup) continue;
+        print_dep_tree(dep.name, "", i == pkg.ndepends - 1, path, pathlen + 1);
+    }
+}
+
 void cmd_deptree(int argc, char **argv) {
     if (argc == 0) die("No package specified.\nUsage: lpm deps <package>");
 
-    /* collect all packages into single resolved list */
-    nresolved = 0;
     for (int a = 0; a < argc; a++) {
-        collect(argv[a], 0);
+        char path[MAX_QUEUE][MAX_STR];
+        printf("%s\n", argv[a]);           /* root: name only, no glyph */
+        print_dep_roots_children(argv[a], path, 0);
+        if (a + 1 < argc) printf("\n");
     }
-
-    if (nresolved == 0) {
-        fprintf(stderr, C_RED "error: " C_RESET
-                "No PKGBUILDs found\n");
-        return;
-    }
-
-    toposort();
-    print_pkg_list();
 }
 
 /* called from cmd_sync — set folder info on resolved nodes */

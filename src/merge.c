@@ -83,8 +83,18 @@ int pkg_merge(Package *pkg, const char *root, Transaction *tx) {
                    tx->nmerged < LPM_MAX_FILES) {
                 line[strcspn(line, "\n")] = '\0';
                 if (!line[0]) continue;
-                strncpy(tx->merged_files[tx->nmerged], line, LPM_PATH_MAX - 1);
-                tx->merged_files[tx->nmerged][LPM_PATH_MAX - 1] = '\0';
+                /* Reject rather than silently truncate: a truncated rollback
+                 * path would unlink the wrong file. A full 4095-char line with
+                 * no NUL slack means the record exceeded LPM_PATH_MAX. */
+                if (strlen(line) >= LPM_PATH_MAX - 1) {
+                    fprintf(stderr, C_RED "error:" C_RESET
+                        " journal path too long (>= %d) — aborting merge for %s\n",
+                        LPM_PATH_MAX - 1, pkg->name);
+                    fclose(flp);
+                    safety_restore_configs(pkg, root);
+                    return -1;
+                }
+                strcpy(tx->merged_files[tx->nmerged], line);
                 tx->nmerged++;
             }
             fclose(flp);
